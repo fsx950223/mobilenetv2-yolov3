@@ -4,7 +4,6 @@ Class definition of YOLO_v3 style detection model on image and video
 """
 
 import colorsys
-import os
 from timeit import default_timer as timer
 
 import numpy as np
@@ -12,7 +11,7 @@ from keras import backend as K
 from keras.models import load_model
 from keras.layers import Input
 from PIL import Image, ImageFont, ImageDraw
-
+import tensorflow as tf
 from yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
 from yolo3.utils import letterbox_image
 import os
@@ -20,7 +19,7 @@ from keras.utils import multi_gpu_model
 
 class YOLO(object):
     _defaults = {
-        "model_path": 'trained_weights_final.h5',
+        "model_path": '../download/trained_weights_final_2.h5',
         "anchors_path": './model_data/yolo_anchors.txt',
         "classes_path": './cci.names',
         "score" : 0.2,
@@ -41,7 +40,12 @@ class YOLO(object):
         self.__dict__.update(kwargs) # and update with user overrides
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
-        self.sess = K.get_session()
+        #self.sess =
+        config = tf.ConfigProto()
+        config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+        sess = tf.Session(config=config)
+        sess.as_default()
+        self.sess=K.get_session()
         self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self):
@@ -101,7 +105,6 @@ class YOLO(object):
 
     def detect_image(self, image):
         start = timer()
-
         if self.model_image_size != (None, None):
             assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
