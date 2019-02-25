@@ -19,7 +19,8 @@ from keras.utils import multi_gpu_model
 
 class YOLO(object):
     _defaults = {
-        "model_path": '../download/trained_weights_final_2.h5',
+        #"model_path": '../download/trained_weights_final_2.h5',
+        "model_path": './trained_weights_final.h5',
         "anchors_path": './model_data/yolo_anchors.txt',
         "classes_path": './cci.names',
         "score" : 0.2,
@@ -40,12 +41,11 @@ class YOLO(object):
         self.__dict__.update(kwargs) # and update with user overrides
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
-        #self.sess =
         config = tf.ConfigProto()
         config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
         sess = tf.Session(config=config)
-        sess.as_default()
-        self.sess=K.get_session()
+        K.set_session(sess)
+        self.sess=sess
         self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self):
@@ -104,7 +104,7 @@ class YOLO(object):
         return boxes, scores, classes
 
     def detect_image(self, image):
-        start = timer()
+
         if self.model_image_size != (None, None):
             assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
@@ -119,6 +119,7 @@ class YOLO(object):
         image_data /= 255.
         image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
 
+        start = timer()
         out_boxes, out_scores, out_classes = self.sess.run(
             [self.boxes, self.scores, self.classes],
             feed_dict={
@@ -126,6 +127,7 @@ class YOLO(object):
                 self.input_image_shape: [image.size[1], image.size[0]],
                 K.learning_phase(): 0
             })
+        end = timer()
 
         print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
 
@@ -165,7 +167,7 @@ class YOLO(object):
             draw.text(text_origin, label, fill=(0, 0, 0), font=font)
             del draw
 
-        end = timer()
+
         print(end - start)
         return image
 
