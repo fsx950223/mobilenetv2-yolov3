@@ -16,46 +16,48 @@ from yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
 from yolo3.utils import letterbox_image
 import os
 from keras.utils import multi_gpu_model
+from typing import List,Tuple
+
 
 class YOLO(object):
     _defaults = {
-        #"model_path": '../download/trained_weights_final_2.h5',
+        # "model_path": '../download/trained_weights_final_2.h5',
         "model_path": './trained_weights_final.h5',
         "anchors_path": './model_data/yolo_anchors.txt',
         "classes_path": './cci.names',
-        "score" : 0.2,
-        "iou" : 0.45,
-        "model_image_size" : (416, 416),
-        "gpu_num" : 1,
+        "score": 0.2,
+        "iou": 0.45,
+        "model_image_size": (416, 416),
+        "gpu_num": 1,
     }
 
     @classmethod
-    def get_defaults(cls, n):
+    def get_defaults(cls, n: str):
         if n in cls._defaults:
             return cls._defaults[n]
         else:
             return "Unrecognized attribute name '" + n + "'"
 
     def __init__(self, **kwargs):
-        self.__dict__.update(self._defaults) # set up default values
-        self.__dict__.update(kwargs) # and update with user overrides
+        self.__dict__.update(self._defaults)  # set up default values
+        self.__dict__.update(kwargs)  # and update with user overrides
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
         config = tf.ConfigProto()
         config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
         sess = tf.Session(config=config)
         K.set_session(sess)
-        self.sess=sess
+        self.sess = sess
         self.boxes, self.scores, self.classes = self.generate()
 
-    def _get_class(self):
+    def _get_class(self) -> List[str]:
         classes_path = os.path.expanduser(self.classes_path)
         with open(classes_path) as f:
             class_names = f.readlines()
         class_names = [c.strip() for c in class_names]
         return class_names
 
-    def _get_anchors(self):
+    def _get_anchors(self) -> np.ndarray:
         anchors_path = os.path.expanduser(self.anchors_path)
         with open(anchors_path) as f:
             anchors = f.readline()
@@ -69,25 +71,25 @@ class YOLO(object):
         # Load model, or construct model and load weights.
         num_anchors = len(self.anchors)
         num_classes = len(self.class_names)
-        is_tiny_version = num_anchors==6 # default setting
+        is_tiny_version = num_anchors == 6  # default setting
         try:
             self.yolo_model = load_model(model_path, compile=False)
         except:
-            self.yolo_model = tiny_yolo_body(Input(shape=(None,None,3)), num_anchors//2, num_classes) \
-                if is_tiny_version else yolo_body(Input(shape=(None,None,3)), num_anchors//3, num_classes)
-            self.yolo_model.load_weights(self.model_path) # make sure model, anchors and classes match
+            self.yolo_model = tiny_yolo_body(Input(shape=(None, None, 3)), num_anchors // 2, num_classes) \
+                if is_tiny_version else yolo_body(Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
+            self.yolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
         else:
             assert self.yolo_model.layers[-1].output_shape[-1] == \
-                num_anchors/len(self.yolo_model.output) * (num_classes + 5), \
+                   num_anchors / len(self.yolo_model.output) * (num_classes + 5), \
                 'Mismatch between model and given anchor and class sizes'
 
         print('{} model, anchors, and classes loaded.'.format(model_path))
 
         # Generate colors for drawing bounding boxes.
-        hsv_tuples = [(x / len(self.class_names), 1., 1.)
+        hsv_tuples:List[Tuple[float,float,float]] = [(x / len(self.class_names), 1., 1.)
                       for x in range(len(self.class_names))]
-        self.colors = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
-        self.colors = list(
+        self.colors:List[Tuple[float,float,float]] = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
+        self.colors:List[Tuple[int,int,int]] = list(
             map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)),
                 self.colors))
         np.random.seed(10101)  # Fixed seed for consistent colors across runs.
@@ -95,19 +97,19 @@ class YOLO(object):
         np.random.seed(None)  # Reset seed to default.
 
         # Generate output tensor targets for filtered bounding boxes.
-        self.input_image_shape = K.placeholder(shape=(2, ))
-        if self.gpu_num>=2:
+        self.input_image_shape = K.placeholder(shape=(2,))
+        if self.gpu_num >= 2:
             self.yolo_model = multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
         boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
-                len(self.class_names), self.input_image_shape,
-                score_threshold=self.score, iou_threshold=self.iou)
+                                           len(self.class_names), self.input_image_shape,
+                                           score_threshold=self.score, iou_threshold=self.iou)
         return boxes, scores, classes
 
-    def detect_image(self, image):
+    def detect_image(self, image: Image) -> Image:
 
         if self.model_image_size != (None, None):
-            assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
-            assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
             boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
         else:
             new_image_size = (image.width - (image.width % 32),
@@ -132,7 +134,7 @@ class YOLO(object):
         print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
 
         font = ImageFont.truetype(font='font/FiraMono-Medium.otf',
-                    size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
+                                  size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
         thickness = (image.size[0] + image.size[1]) // 300
 
         for i, c in reversed(list(enumerate(out_classes))):
@@ -167,22 +169,22 @@ class YOLO(object):
             draw.text(text_origin, label, fill=(0, 0, 0), font=font)
             del draw
 
-
         print(end - start)
         return image
 
     def close_session(self):
         self.sess.close()
 
-def detect_video(yolo, video_path, output_path=""):
+
+def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
     import cv2
     vid = cv2.VideoCapture(video_path)
     if not vid.isOpened():
         raise IOError("Couldn't open webcam or video")
-    video_FourCC    = int(vid.get(cv2.CAP_PROP_FOURCC))
-    video_fps       = vid.get(cv2.CAP_PROP_FPS)
-    video_size      = (int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                        int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    video_FourCC = int(vid.get(cv2.CAP_PROP_FOURCC))
+    video_fps = vid.get(cv2.CAP_PROP_FPS)
+    video_size = (int(vid.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                  int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT)))
     isOutput = True if output_path != "" else False
     if isOutput:
         print("!!! TYPE:", type(output_path), type(video_FourCC), type(video_fps), type(video_size))
@@ -214,4 +216,3 @@ def detect_video(yolo, video_path, output_path=""):
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     yolo.close_session()
-
