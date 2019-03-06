@@ -1,7 +1,8 @@
-import sys
+import numpy as np
 import argparse
 from yolo import YOLO, detect_video
 from PIL import Image
+from timeit import default_timer as timer
 
 def detect_img(yolo):
     while True:
@@ -14,6 +15,47 @@ def detect_img(yolo):
         else:
             r_image = yolo.detect_image(image)
             r_image.show()
+    yolo.close_session()
+
+def test_img(yolo):
+    while True:
+        list = input('Input image list:')
+        image = Image.open('image1.jpeg')
+        yolo.detect_image(image)
+        file=open(list)
+        class_names=yolo._get_class()
+        records=[]
+        start = timer()
+        for name in class_names:
+            record = open(name+'.txt','a')
+            records.append(record)
+        line=file.readline()
+        while line:
+            line=line.split()[0]
+            try:
+                image = Image.open(line)
+            except:
+                print('Open Error! Try again!')
+                continue
+            else:
+                out_boxes, out_scores, out_classes = yolo.detect_image_test(image)
+                if out_classes:
+                    for i, c in out_classes:
+                        box = out_boxes[i]
+                        score = out_scores[i]
+                        top, left, bottom, right = box
+                        top = max(0, np.floor(top + 0.5).astype('int32'))
+                        left = max(0, np.floor(left + 0.5).astype('int32'))
+                        bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
+                        right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
+                        records[c].write("%s %s %s %s %s %s %s\n"%(line,c,score, left, top, right, bottom))
+            image.close()
+            line = file.readline()
+        end=timer()
+        print(end-start)
+        for record in records:
+            record.close()
+        file.close()
     yolo.close_session()
 
 FLAGS = None
@@ -48,6 +90,14 @@ if __name__ == '__main__':
         '--image', default=False, action="store_true",
         help='Image detection mode, will ignore all positional arguments'
     )
+    parser.add_argument(
+        '--export', default=False, action="store_true",
+        help='Export hdf5 model to protobuffer model'
+    )
+    parser.add_argument(
+        '--test', default=False, action="store_true",
+        help='Image test mode, will ignore all positional arguments'
+    )
     '''
     Command line positional arguments -- for video detection mode
     '''
@@ -55,7 +105,10 @@ if __name__ == '__main__':
         "--input", nargs='?', type=str,required=False,default='./path2your_video',
         help = "Video input path"
     )
-
+    parser.add_argument(
+        "--model_name", nargs='?', type=str, required=False, default='./name2your_model',
+        help="Model name"
+    )
     parser.add_argument(
         "--output", nargs='?', type=str, default="",
         help = "[Optional] Video output path"
@@ -71,6 +124,22 @@ if __name__ == '__main__':
         if "input" in FLAGS:
             print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
         detect_img(YOLO(**vars(FLAGS)))
+    elif FLAGS.test:
+        """
+        Image detection mode, disregard any remaining command line arguments
+        """
+        print("Image test mode")
+        if "input" in FLAGS:
+            print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
+        test_img(YOLO(**vars(FLAGS)))
+    elif FLAGS.export:
+        """
+        Export model protobuffer
+        """
+        print("Export model mode")
+        if "input" in FLAGS:
+            print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
+        YOLO(**vars(FLAGS)).export_pb_model(FLAGS.model_name)
     elif "input" in FLAGS:
         detect_video(YOLO(**vars(FLAGS)), FLAGS.input, FLAGS.output)
     else:

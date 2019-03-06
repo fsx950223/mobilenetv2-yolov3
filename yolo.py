@@ -16,13 +16,15 @@ from yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
 from yolo3.utils import letterbox_image
 import os
 from keras.utils import multi_gpu_model
-from typing import List,Tuple
 
+from typing import List,Tuple
+from tensorflow.python import debug as tf_debug
+from tensorflow.python.framework import graph_util
 
 class YOLO(object):
     _defaults = {
-        # "model_path": '../download/trained_weights_final_2.h5',
-        "model_path": './trained_weights_final.h5',
+        #"model_path": '../download/trained_weights_final_2.h5',
+        "model_path": './trained_weights_final_3.h5',
         "anchors_path": './model_data/yolo_anchors.txt',
         "classes_path": './cci.names',
         "score": 0.2,
@@ -43,11 +45,17 @@ class YOLO(object):
         self.__dict__.update(kwargs)  # and update with user overrides
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
-        config = tf.ConfigProto()
-        config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
-        sess = tf.Session(config=config)
-        K.set_session(sess)
-        self.sess = sess
+        # config = tf.ConfigProto()
+        # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+        # sess = tf.Session(config=config)
+        # K.set_session(sess)
+        # self.sess=sess
+
+        # K.set_session(
+        #     tf_debug.TensorBoardDebugWrapperSession(tf.Session(), "fangsixie-Inspiron-7572:6064"))
+
+        self.sess=K.get_session()
+
         self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self) -> List[str]:
@@ -84,7 +92,6 @@ class YOLO(object):
                 'Mismatch between model and given anchor and class sizes'
 
         print('{} model, anchors, and classes loaded.'.format(model_path))
-
         # Generate colors for drawing bounding boxes.
         hsv_tuples:List[Tuple[float,float,float]] = [(x / len(self.class_names), 1., 1.)
                       for x in range(len(self.class_names))]
@@ -105,8 +112,16 @@ class YOLO(object):
                                            score_threshold=self.score, iou_threshold=self.iou)
         return boxes, scores, classes
 
-    def detect_image(self, image: Image) -> Image:
 
+    def export_pb_model(self,name):
+        constant_graph = graph_util.convert_variables_to_constants(
+            self.sess,
+            self.sess.graph.as_graph_def(),
+            [node.op.name for node in [self.boxes, self.scores, self.classes]])
+        tf.train.write_graph(constant_graph, "./", name,
+                             as_text=False)
+
+    def detect_image(self, image: Image) -> Image:
         if self.model_image_size != (None, None):
             assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
@@ -171,6 +186,30 @@ class YOLO(object):
 
         print(end - start)
         return image
+
+    def detect_image_test(self, image):
+
+        if self.model_image_size != (None, None):
+            assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
+            boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
+        else:
+            new_image_size = (image.width - (image.width % 32),
+                              image.height - (image.height % 32))
+            boxed_image = letterbox_image(image, new_image_size)
+        image_data = np.array(boxed_image, dtype='float32')
+
+        image_data /= 255.
+        image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
+        out_boxes, out_scores, out_classes = self.sess.run(
+            [self.boxes, self.scores, self.classes],
+            feed_dict={
+                self.yolo_model.input: image_data,
+                self.input_image_shape: [image.size[1], image.size[0]],
+                K.learning_phase(): 0
+            })
+
+        return out_boxes, out_scores, reversed(list(enumerate(out_classes)))
 
     def close_session(self):
         self.sess.close()
