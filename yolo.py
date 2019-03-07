@@ -24,12 +24,12 @@ from tensorflow.python.framework import graph_util
 class YOLO(object):
     _defaults = {
         #"model_path": '../download/trained_weights_final_2.h5',
-        "model_path": './trained_weights_final_3.h5',
+        "model_path": './logs/000/trained_weights_stage_1.h5',
         "anchors_path": './model_data/yolo_anchors.txt',
-        "classes_path": './cci.names',
-        "score": 0.2,
+        "classes_path": '../pascal/VOCdevkit/voc_classes.txt',
+        "score": 0.02,
         "iou": 0.45,
-        "model_image_size": (416, 416),
+        "model_image_size": (224, 224),
         "gpu_num": 1,
     }
 
@@ -79,11 +79,11 @@ class YOLO(object):
         # Load model, or construct model and load weights.
         num_anchors = len(self.anchors)
         num_classes = len(self.class_names)
-        is_tiny_version = num_anchors == 6  # default setting
+        is_tiny_version = True  # default setting
         try:
             self.yolo_model = load_model(model_path, compile=False)
         except:
-            self.yolo_model = tiny_yolo_body(Input(shape=(None, None, 3)), num_anchors // 2, num_classes) \
+            self.yolo_model = tiny_yolo_body(Input(shape=(None, None, 3)), num_anchors // 3, num_classes) \
                 if is_tiny_version else yolo_body(Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             self.yolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
         else:
@@ -113,7 +113,7 @@ class YOLO(object):
         return boxes, scores, classes
 
 
-    def export_pb_model(self,name):
+    def export_pb_model(self,name:str)->None:
         constant_graph = graph_util.convert_variables_to_constants(
             self.sess,
             self.sess.graph.as_graph_def(),
