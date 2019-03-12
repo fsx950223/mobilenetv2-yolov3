@@ -7,24 +7,20 @@ import colorsys
 from timeit import default_timer as timer
 
 import numpy as np
-from keras import backend as K
-from keras.models import load_model
-from keras.layers import Input
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
 from yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
 from yolo3.utils import letterbox_image
 import os
-from keras.utils import multi_gpu_model
 
-from typing import List,Tuple
+from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
-from tensorflow.python.framework import graph_util
+
 
 class YOLO(object):
     _defaults = {
-        #"model_path": '../download/trained_weights_final_2.h5',
-        "model_path": './logs/000/trained_weights_stage_1.h5',
+        # "model_path": '../download/trained_weights_final_2.h5',
+        "model_path": './logs/000/trained_weights_final.h5',
         "anchors_path": './model_data/yolo_anchors.txt',
         "classes_path": '../pascal/VOCdevkit/voc_classes.txt',
         "score": 0.02,
@@ -45,16 +41,17 @@ class YOLO(object):
         self.__dict__.update(kwargs)  # and update with user overrides
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
-        # config = tf.ConfigProto()
-        # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
-        # sess = tf.Session(config=config)
-        # K.set_session(sess)
-        # self.sess=sess
+        self.alpha=1.4
+        config = tf.ConfigProto()
+        config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+        sess = tf.Session(config=config)
+        tf.keras.backend.set_session(sess)
+        self.sess=sess
 
-        # K.set_session(
+        # tf.set_session(
         #     tf_debug.TensorBoardDebugWrapperSession(tf.Session(), "fangsixie-Inspiron-7572:6064"))
 
-        self.sess=K.get_session()
+        #self.sess = tf.get_session()
 
         self.boxes, self.scores, self.classes = self.generate()
 
@@ -81,10 +78,10 @@ class YOLO(object):
         num_classes = len(self.class_names)
         is_tiny_version = True  # default setting
         try:
-            self.yolo_model = load_model(model_path, compile=False)
+            self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
-            self.yolo_model = tiny_yolo_body(Input(shape=(None, None, 3)), num_anchors // 3, num_classes) \
-                if is_tiny_version else yolo_body(Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
+            self.yolo_model = tiny_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes, self.alpha) \
+                if is_tiny_version else yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             self.yolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
         else:
             assert self.yolo_model.layers[-1].output_shape[-1] == \
@@ -93,10 +90,10 @@ class YOLO(object):
 
         print('{} model, anchors, and classes loaded.'.format(model_path))
         # Generate colors for drawing bounding boxes.
-        hsv_tuples:List[Tuple[float,float,float]] = [(x / len(self.class_names), 1., 1.)
-                      for x in range(len(self.class_names))]
-        self.colors:List[Tuple[float,float,float]] = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
-        self.colors:List[Tuple[int,int,int]] = list(
+        hsv_tuples: List[Tuple[float, float, float]] = [(x / len(self.class_names), 1., 1.)
+                                                        for x in range(len(self.class_names))]
+        self.colors: List[Tuple[float, float, float]] = list(map(lambda x: colorsys.hsv_to_rgb(*x), hsv_tuples))
+        self.colors: List[Tuple[int, int, int]] = list(
             map(lambda x: (int(x[0] * 255), int(x[1] * 255), int(x[2] * 255)),
                 self.colors))
         np.random.seed(10101)  # Fixed seed for consistent colors across runs.
@@ -104,17 +101,16 @@ class YOLO(object):
         np.random.seed(None)  # Reset seed to default.
 
         # Generate output tensor targets for filtered bounding boxes.
-        self.input_image_shape = K.placeholder(shape=(2,))
+        self.input_image_shape = tf.placeholder(tf.float32,shape=(2,))
         if self.gpu_num >= 2:
-            self.yolo_model = multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
+            self.yolo_model = tf.keras.utils.multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
         boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
                                            len(self.class_names), self.input_image_shape,
                                            score_threshold=self.score, iou_threshold=self.iou)
         return boxes, scores, classes
 
-
-    def export_pb_model(self,name:str)->None:
-        constant_graph = graph_util.convert_variables_to_constants(
+    def export_pb_model(self, name: str) -> None:
+        constant_graph = tf.graph_util.convert_variables_to_constants(
             self.sess,
             self.sess.graph.as_graph_def(),
             [node.op.name for node in [self.boxes, self.scores, self.classes]])
@@ -142,7 +138,7 @@ class YOLO(object):
             feed_dict={
                 self.yolo_model.input: image_data,
                 self.input_image_shape: [image.size[1], image.size[0]],
-                K.learning_phase(): 0
+                tf.keras.backend.learning_phase(): 0
             })
         end = timer()
 
@@ -190,8 +186,8 @@ class YOLO(object):
     def detect_image_test(self, image):
 
         if self.model_image_size != (None, None):
-            assert self.model_image_size[0]%32 == 0, 'Multiples of 32 required'
-            assert self.model_image_size[1]%32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
             boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
         else:
             new_image_size = (image.width - (image.width % 32),
@@ -206,7 +202,7 @@ class YOLO(object):
             feed_dict={
                 self.yolo_model.input: image_data,
                 self.input_image_shape: [image.size[1], image.size[0]],
-                K.learning_phase(): 0
+                tf.keras.backend.learning_phase(): 0
             })
 
         return out_boxes, out_scores, reversed(list(enumerate(out_classes)))

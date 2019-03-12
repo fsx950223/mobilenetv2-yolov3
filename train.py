@@ -3,12 +3,7 @@ Retrain the YOLO model for your own dataset.
 """
 
 import numpy as np
-import keras.backend as K
-from keras.layers import Input, Lambda
-from keras.models import Model
-from keras.optimizers import Adam
-from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
-
+import tensorflow as tf
 from yolo3.model import preprocess_true_boxes, yolo_body, tiny_yolo_body, yolo_loss
 from yolo3.utils import get_random_data
 from typing import Tuple, List
@@ -22,23 +17,24 @@ def _main():
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-
+    gpu_num=1
     input_shape = (224, 224)  # multiple of 32, hw
 
     is_tiny_version = True  # default setting
     if is_tiny_version:
-        model = create_tiny_model(input_shape, anchors, num_classes,False,
+        model = create_tiny_model(input_shape, anchors, num_classes,False,alpha=1.4,
                                   freeze_body=1, weights_path='model_data/tiny_yolo_weights.h5')
     else:
         model = create_model(input_shape, anchors, num_classes,
                              freeze_body=2,
                              weights_path='model_data/darknet53_weights.h5')  # make sure you know what you freeze
-
-    logging = TensorBoard(log_dir=log_dir)
-    checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
+    if gpu_num>= 2:
+        model=tf.keras.utils.multi_gpu_model(model,gpus=gpu_num)
+    logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
                                  monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
-    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
 
     val_split = 0.1
     with open(annotation_path,encoding='UTF-8') as f:
@@ -52,7 +48,7 @@ def _main():
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
     if True:
-        model.compile(optimizer=Adam(lr=1e-3), loss={
+        model.compile(optimizer=tf.keras.optimizers.Adam(lr=1e-3), loss={
             # use custom yolo_loss Lambda layer.
             'yolo_loss': lambda y_true, y_pred: y_pred})
 
@@ -73,7 +69,7 @@ def _main():
     if True:
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
-        model.compile(optimizer=Adam(lr=1e-4),
+        model.compile(optimizer=tf.keras.optimizers.Adam(lr=1e-4),
                       loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
 
@@ -110,14 +106,14 @@ def get_anchors(anchors_path: str) -> List[List[float]]:
 
 def create_model(input_shape: Tuple[int, int], anchors: List[List[float]], num_classes: int, load_pretrained: bool = True,
                  freeze_body: int = 2,
-                 weights_path: str = 'model_data/yolo_weights.h5') -> Model:
+                 weights_path: str = 'model_data/yolo_weights.h5') -> tf.keras.models.Model:
     """create the training model"""
-    K.clear_session()  # get a new session
-    image_input = Input(shape=(None, None, 3))
+    tf.keras.backend.clear_session()  # get a new session
+    image_input = tf.keras.layers.Input(shape=(None, None, 3))
     h, w = input_shape
     num_anchors = len(anchors)
 
-    y_true = [Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
+    y_true = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
                            num_anchors // 3, num_classes + 5)) for l in range(3)]
 
     model_body = yolo_body(image_input, num_anchors // 3, num_classes)
@@ -132,26 +128,26 @@ def create_model(input_shape: Tuple[int, int], anchors: List[List[float]], num_c
             for i in range(num): model_body.layers[i].trainable = False
             print('Freeze the first {} layers of total {} layers.'.format(num, len(model_body.layers)))
 
-    model_loss = Lambda(yolo_loss, output_shape=(1,), name='yolo_loss',
+    model_loss = tf.keras.layers.Lambda(yolo_loss, output_shape=(1,), name='yolo_loss',
                         arguments={'anchors': anchors, 'num_classes': num_classes, 'ignore_thresh': 0.5})(
         [*model_body.output, *y_true])
-    model = Model([model_body.input, *y_true], model_loss)
+    model = tf.keras.models.Model([model_body.input, *y_true], model_loss)
 
     return model
 
 
-def create_tiny_model(input_shape, anchors, num_classes, load_pretrained=True,freeze_body=2,
-                      weights_path='model_data/tiny_yolo_weights.h5'):
+def create_tiny_model(input_shape, anchors, num_classes, load_pretrained:bool=True,freeze_body:int=2,alpha:float=1.0,
+                      weights_path:str='model_data/tiny_yolo_weights.h5'):
     """create the training model, for Tiny YOLOv3"""
-    K.clear_session()  # get a new session
-    image_input = Input(shape=(None, None, 3))
+    tf.keras.backend.clear_session()  # get a new session
+    image_input = tf.keras.layers.Input(shape=(None, None, 3))
     h, w = input_shape
     num_anchors = len(anchors)
 
-    y_true = [Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
+    y_true = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
                            num_anchors // 3, num_classes + 5)) for l in range(3)]
 
-    model_body = tiny_yolo_body(image_input, num_anchors // 3, num_classes)
+    model_body = tiny_yolo_body(image_input, num_anchors // 3, num_classes,alpha)
     print('Create MobilenetV2 YOLOv3 model with {} anchors and {} classes.'.format(num_anchors, num_classes))
 
     if load_pretrained:
@@ -163,10 +159,10 @@ def create_tiny_model(input_shape, anchors, num_classes, load_pretrained=True,fr
         for i in range(num): model_body.layers[i].trainable = False
         print('Freeze the first {} layers of total {} layers.'.format(num, len(model_body.layers)))
 
-    model_loss = Lambda(yolo_loss, output_shape=(1,), name='yolo_loss',
+    model_loss = tf.keras.layers.Lambda(yolo_loss, output_shape=(1,), name='yolo_loss',
                         arguments={'anchors': anchors, 'num_classes': num_classes, 'ignore_thresh': 0.5})(
         [*model_body.output, *y_true])
-    model = Model([model_body.input, *y_true], model_loss)
+    model = tf.keras.models.Model([model_body.input, *y_true], model_loss)
 
     return model
 

@@ -20,8 +20,8 @@ def detect_img(yolo):
 def test_img(yolo):
     while True:
         list = input('Input image list:')
-        image = Image.open('image1.jpeg')
-        yolo.detect_image(image)
+        # image = Image.open('image1.jpeg')
+        # yolo.detect_image(image)
         file=open(list)
         class_names=yolo._get_class()
         records=[]
