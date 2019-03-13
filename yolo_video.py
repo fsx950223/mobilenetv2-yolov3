@@ -20,8 +20,6 @@ def detect_img(yolo):
 def test_img(yolo):
     while True:
         list = input('Input image list:')
-        # image = Image.open('image1.jpeg')
-        # yolo.detect_image(image)
         file=open(list)
         class_names=yolo._get_class()
         records=[]
@@ -92,7 +90,7 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--export', default=False, action="store_true",
-        help='Export hdf5 model to protobuffer model'
+        help='Export hdf5 model to serving model'
     )
     parser.add_argument(
         '--test', default=False, action="store_true",
@@ -106,8 +104,8 @@ if __name__ == '__main__':
         help = "Video input path"
     )
     parser.add_argument(
-        "--model_name", nargs='?', type=str, required=False, default='./name2your_model',
-        help="Model name"
+        "--export_path", nargs='?', type=str, required=False, default='./test',
+        help="Serving model save path"
     )
     parser.add_argument(
         "--output", nargs='?', type=str, default="",
@@ -139,7 +137,7 @@ if __name__ == '__main__':
         print("Export model mode")
         if "input" in FLAGS:
             print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
-        YOLO(**vars(FLAGS)).export_pb_model(FLAGS.model_name)
+        YOLO(**vars(FLAGS)).export_serving_model(FLAGS.export_path)
     elif "input" in FLAGS:
         detect_video(YOLO(**vars(FLAGS)), FLAGS.input, FLAGS.output)
     else:

@@ -19,11 +19,11 @@ from tensorflow.python import debug as tf_debug
 
 class YOLO(object):
     _defaults = {
-        # "model_path": '../download/trained_weights_final_2.h5',
-        "model_path": './logs/000/trained_weights_final.h5',
-        "anchors_path": './model_data/yolo_anchors.txt',
-        "classes_path": '../pascal/VOCdevkit/voc_classes.txt',
-        "score": 0.02,
+        "model_path": '../download/trained_weights_final3.h5',
+        #"model_path": './logs/000/trained_weights_final.h5',
+        "anchors_path": '../download/yolo_anchors.txt',
+        "classes_path": '../download/cci.names',
+        "score": 0.2,
         "iou": 0.45,
         "model_image_size": (224, 224),
         "gpu_num": 1,
@@ -109,13 +109,16 @@ class YOLO(object):
                                            score_threshold=self.score, iou_threshold=self.iou)
         return boxes, scores, classes
 
-    def export_pb_model(self, name: str) -> None:
-        constant_graph = tf.graph_util.convert_variables_to_constants(
+    def export_serving_model(self, path: str) -> None:
+        tf.saved_model.simple_save(
             self.sess,
-            self.sess.graph.as_graph_def(),
-            [node.op.name for node in [self.boxes, self.scores, self.classes]])
-        tf.train.write_graph(constant_graph, "./", name,
-                             as_text=False)
+            './export_model/1',
+            inputs={
+                self.yolo_model.input.name: self.yolo_model.input,
+                self.input_image_shape.name: self.input_image_shape,
+                tf.keras.backend.learning_phase().name: tf.constant(0)
+            },
+            outputs={t.name: t for t in [self.boxes, self.scores, self.classes]})
 
     def detect_image(self, image: Image) -> Image:
         if self.model_image_size != (None, None):

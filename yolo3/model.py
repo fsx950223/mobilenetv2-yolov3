@@ -133,7 +133,7 @@ def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_sha
     return box_xy, box_wh, box_confidence, box_class_probs
 
 
-def yolo_correct_boxes(box_xy: tf.Tensor, box_wh: tf.Tensor, input_shape: tf.Tensor, image_shape: tf.Tensor) -> tf.Tensor:
+def yolo_correct_boxes(box_xy: tf.Tensor, box_wh: tf.Tensor, input_shape: tf.Tensor, image_shape: tf.placeholder) -> tf.Tensor:
     '''Get corrected boxes'''
     box_yx = box_xy[..., ::-1]
     box_hw = box_wh[..., ::-1]
@@ -160,7 +160,7 @@ def yolo_correct_boxes(box_xy: tf.Tensor, box_wh: tf.Tensor, input_shape: tf.Ten
 
 
 def yolo_boxes_and_scores(feats: tf.Tensor, anchors: List[Tuple[float, float]], num_classes: int,
-                          input_shape: Tuple[int, int], image_shape: Tuple[int, int]) -> Tuple[tf.Tensor, tf.Tensor]:
+                          input_shape: Tuple[int, int], image_shape: tf.placeholder) -> Tuple[tf.Tensor, tf.Tensor]:
     '''Process Conv layer output'''
     box_xy, box_wh, box_confidence, box_class_probs = yolo_head(feats,
                                                                 anchors, num_classes, input_shape)
@@ -174,7 +174,7 @@ def yolo_boxes_and_scores(feats: tf.Tensor, anchors: List[Tuple[float, float]], 
 def yolo_eval(yolo_outputs: List[tf.Tensor],
               anchors: np.ndarray,
               num_classes: int,
-              image_shape: Tuple[int, int],
+              image_shape: tf.placeholder,
               max_boxes: int = 20,
               score_threshold: float = .6,
               iou_threshold: float = .5) -> Tuple[List[tf.Tensor], List[tf.Tensor], List[tf.Tensor]]:
