@@ -1,33 +1,64 @@
 import xml.etree.ElementTree as ET
-from os import getcwd
+import tensorflow as tf
+from os import path
 
-sets=[('FlowManagement', 'train'), ('FlowManagement', 'test'),('Heapmaterial', 'train'),('Heapmaterial', 'test'),('Illegal_parking', 'train'),('Illegal_parking', 'test'),('trashcan', 'train'),('trashcan', 'test'),('outManagement', 'train'),('outManagement', 'test')]
+classes = ["FlowManagement", "Heapmaterial", "Illegal_parking", "laji", "outManagement"]
+tfrecords_size = 1000
 
-classes = ["FlowManagement","Heapmaterial","Illegal_parking","trashcan","outManagement"]
-
-def convert_annotation(year, image_id, list_file):
-    in_file = open('VOCdevkit/%s/Annotations/%s.xml'%(year, image_id))
-    tree=ET.parse(in_file)
-    root = tree.getroot()
-
+def convert_to_tfrecord(xml, record_writer):
+    name, _ = xml.split('/')[-1].split('.')
+    root = ET.parse(xml.encode('utf-8')).getroot()
+    xmins = []
+    ymins = []
+    xmaxs = []
+    ymaxs = []
+    labels = []
     for obj in root.iter('object'):
         difficult = obj.find('difficult').text
         cls = obj.find('name').text
-        if cls not in classes or int(difficult)==1:
+        if cls not in classes or int(difficult) == 1:
             continue
         cls_id = classes.index(cls)
         xmlbox = obj.find('bndbox')
-        b = (int(xmlbox.find('xmin').text), int(xmlbox.find('ymin').text), int(xmlbox.find('xmax').text), int(xmlbox.find('ymax').text))
-        list_file.write(" " + ",".join([str(a) for a in b]) + ',' + str(cls_id))
+        xmins.append(float(xmlbox.find('xmin').text))
+        ymins.append(float(xmlbox.find('ymin').text))
+        xmaxs.append(float(xmlbox.find('xmax').text))
+        ymaxs.append(float(xmlbox.find('ymax').text))
+        labels.append(int(cls_id))
+    with tf.gfile.Open(tf.gfile.Glob('%s/%s/**/%s.jp*g' % (clazz, file, name))[0], 'rb') as image_file:
+        image_data=image_file.read()
+        example = tf.train.Example(features=tf.train.Features(feature={
+            'image/encoded': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image_data])),
+            'image/object/bbox/xmin': tf.train.Feature(float_list=tf.train.FloatList(value=xmins)),
+            'image/object/bbox/xmax': tf.train.Feature(float_list=tf.train.FloatList(value=xmaxs)),
+            'image/object/bbox/ymin': tf.train.Feature(float_list=tf.train.FloatList(value=ymins)),
+            'image/object/bbox/ymax': tf.train.Feature(float_list=tf.train.FloatList(value=ymaxs)),
+            'image/object/bbox/label': tf.train.Feature(float_list=tf.train.FloatList(value=labels))
+        }))
+        record_writer.write(example.SerializeToString())
 
-wd = getcwd()
 
-for year, image_set in sets:
-    image_ids = open('VOCdevkit/%s/ImageSets/Main/%s.txt'%(year, image_set)).read().strip().split()
-    list_file = open('%s_%s.txt'%(year, image_set), 'w')
-    for image_id in image_ids:
-        list_file.write('%s/VOCdevkit/%s/JPEGImages/%s.jpeg'%(wd, year, image_id))
-        convert_annotation(year, image_id, list_file)
-        list_file.write('\n')
-    list_file.close()
+for clazz in classes:
+    index_records = 1
+    num = 1
+    record_writer = tf.io.TFRecordWriter(
+        path.join('./', 'cci_%d_%s.tfrecords' % (index_records, clazz)))
 
+    for file in tf.gfile.ListDirectory(clazz):
+        if tf.gfile.IsDirectory('%s/%s' % (clazz, file)):
+            xmls = tf.gfile.Glob('%s/%s/**/*.xml' % (clazz, file))
+            for xml in xmls:
+                if num >= tfrecords_size:
+                    tf.gfile.Rename('cci_%d_%s.tfrecords' % (index_records, clazz),
+                                    'cci_%d_%s_%d.tfrecords' % (index_records, clazz, num))
+                    index_records += 1
+                    num = 1
+                    record_writer.close()
+                    record_writer = tf.io.TFRecordWriter(
+                        path.join('./', 'cci_%d_%s.tfrecords' % (index_records, clazz)))
+                convert_to_tfrecord(xml, record_writer)
+                num += 1
+            tf.gfile.Rename('cci_%d_%s.tfrecords' % (index_records, clazz),
+                            'cci_%d_%s_%d.tfrecords' % (index_records, clazz, num))
+
+            record_writer.close()
