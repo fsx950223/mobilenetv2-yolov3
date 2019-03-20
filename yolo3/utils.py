@@ -1,11 +1,9 @@
 """Miscellaneous utility functions."""
 
 from functools import reduce
-
 from PIL import Image
 import numpy as np
-from matplotlib.colors import rgb_to_hsv, hsv_to_rgb
-
+import tensorflow as tf
 def compose(*funcs):
     """Compose arbitrarily many functions, evaluated left to right.
 
@@ -33,89 +31,58 @@ def letterbox_image(image, size):
 def rand(a=0, b=1):
     return np.random.rand()*(b-a) + a
 
-def get_random_data(annotation_line, input_shape, random=True, max_boxes=20, jitter=.3, hue=.1, sat=1.5, val=1.5, proc_img=True):
+def get_random_data(features, input_shape, jitter=.3, hue=.1, sat=.5, val=.5,con=.5,max_boxes=20):
     '''random preprocessing for real-time data augmentation'''
-    line = annotation_line.split()
-    image = Image.open(line[0])
-    iw, ih = image.size
-    h, w = input_shape
-    box = np.array([np.array(list(map(int,box.split(',')))) for box in line[1:]])
+    image=tf.image.decode_jpeg(features['image/encoded'],channels=3)
+    image = tf.image.convert_image_dtype(image, tf.uint8)
+    iw,ih=tf.cast(tf.shape(image)[1],tf.float32),tf.cast(tf.shape(image)[0],tf.float32)
+    h, w = tf.cast(input_shape[0],tf.float32),tf.cast(input_shape[1],tf.float32)
+    xmax=tf.expand_dims(features['image/object/bbox/xmax'].values,0)
+    xmin=tf.expand_dims(features['image/object/bbox/xmin'].values,0)
+    ymax=tf.expand_dims(features['image/object/bbox/ymax'].values,0)
+    ymin=tf.expand_dims(features['image/object/bbox/ymin'].values,0)
+    label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
+    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label,tf.float32)], 0)
+    bbox = tf.transpose(bbox,[1, 0])
 
-    if not random:
-        # resize image
-        scale = min(w/iw, h/ih)
-        nw = int(iw*scale)
-        nh = int(ih*scale)
-        dx = (w-nw)//2
-        dy = (h-nh)//2
-        image_data=0
-        if proc_img:
-            image = image.resize((nw,nh), Image.BICUBIC)
-            new_image = Image.new('RGB', (w,h), (128,128,128))
-            new_image.paste(image, (dx, dy))
-            image_data = np.array(new_image)/255.
-
-        # correct boxes
-        box_data = np.zeros((max_boxes,5))
-        if len(box)>0:
-            np.random.shuffle(box)
-            if len(box)>max_boxes: box = box[:max_boxes]
-            box[:, [0,2]] = box[:, [0,2]]*scale + dx
-            box[:, [1,3]] = box[:, [1,3]]*scale + dy
-            box_data[:len(box)] = box
-
-        return image_data, box_data
-
-    # resize image
-    new_ar = w/h * rand(1-jitter,1+jitter)/rand(1-jitter,1+jitter)
-    scale = rand(.25, 2)
-    if new_ar < 1:
-        nh = int(scale*h)
-        nw = int(nh*new_ar)
-    else:
-        nw = int(scale*w)
-        nh = int(nw/new_ar)
-    image = image.resize((nw,nh), Image.BICUBIC)
-
+    nh = ih * tf.minimum(w / iw, h / ih)
+    nw = iw * tf.minimum(w / iw, h / ih)
+    # 将图片按照固定长宽比进行padding缩放
+    dx = (w - nw) / 2
+    dy = (h - nh) / 2
+    image=tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)],
+                                   method=tf.image.ResizeMethod.BICUBIC)
+    new_image = tf.image.pad_to_bounding_box(image, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32),
+                                             tf.cast(h, tf.int32), tf.cast(w, tf.int32))
     # place image
-    dx = int(rand(0, w-nw))
-    dy = int(rand(0, h-nh))
-    new_image = Image.new('RGB', (w,h), (128,128,128))
-    new_image.paste(image, (dx, dy))
-    image = new_image
+    image_ones = tf.ones_like(image)
+    image_ones_padded=tf.image.pad_to_bounding_box(image_ones,tf.cast(dy,tf.int32),tf.cast(dx,tf.int32),tf.cast(h, tf.int32), tf.cast(w, tf.int32))
+    image_color_padded = (1 - image_ones_padded) * 128
+    image = image_color_padded + new_image
 
     # flip image or not
     flip = rand()<.5
-    if flip: image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    if flip: image = tf.image.flip_left_right(image)
+    image=tf.image.random_hue(image,hue)
+    image = tf.image.random_saturation(image, 1-sat,1+sat)
+    image = tf.image.random_brightness(image, val)
+    image = tf.image.random_contrast(image, 1-con,1+con)
 
-    # distort image
-    hue = rand(-hue, hue)
-    sat = rand(1, sat) if rand()<.5 else 1/rand(1, sat)
-    val = rand(1, val) if rand()<.5 else 1/rand(1, val)
-    x = rgb_to_hsv(np.array(image)/255.)
-    x[..., 0] += hue
-    x[..., 0][x[..., 0]>1] -= 1
-    x[..., 0][x[..., 0]<0] += 1
-    x[..., 1] *= sat
-    x[..., 2] *= val
-    x[x>1] = 1
-    x[x<0] = 0
-    image_data = hsv_to_rgb(x) # numpy array, 0 to 1
+    xmin, ymin, xmax, ymax, label = tf.split(value=bbox, num_or_size_splits=5, axis=1)
+    xmin = xmin * nw / iw + dx
+    xmax = xmax * nw / iw + dx
+    ymin = ymin * nh / ih + dy
+    ymax = ymax * nh / ih + dy
 
-    # correct boxes
-    box_data = np.zeros((max_boxes,5))
-    if len(box)>0:
-        np.random.shuffle(box)
-        box[:, [0,2]] = box[:, [0,2]]*nw/iw + dx
-        box[:, [1,3]] = box[:, [1,3]]*nh/ih + dy
-        if flip: box[:, [0,2]] = w - box[:, [2,0]]
-        box[:, 0:2][box[:, 0:2]<0] = 0
-        box[:, 2][box[:, 2]>w] = w
-        box[:, 3][box[:, 3]>h] = h
-        box_w = box[:, 2] - box[:, 0]
-        box_h = box[:, 3] - box[:, 1]
-        box = box[np.logical_and(box_w>1, box_h>1)] # discard invalid box
-        if len(box)>max_boxes: box = box[:max_boxes]
-        box_data[:len(box)] = box
+    if flip:
+        temp=xmin
+        xmin=xmax
+        xmax=temp
+    bbox = tf.concat([xmin, ymin, xmax, ymax, label], 1)
 
-    return image_data, box_data
+    image=image/255.
+
+    image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
+    bbox = tf.clip_by_value(bbox, clip_value_min = 0, clip_value_max = input_shape[0] - 1)
+    bbox = tf.cond(tf.greater(tf.shape(bbox)[0], max_boxes), lambda: bbox[:max_boxes], lambda: bbox)
+    return image,bbox
