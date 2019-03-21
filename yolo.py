@@ -19,11 +19,11 @@ from tensorflow.python import debug as tf_debug
 
 class YOLO(object):
     _defaults = {
-        "model_path": '../download/trained_weights_final3.h5',
+        "model_path": '../download/trained_weights_stage_1.h5',
         #"model_path": './logs/000/trained_weights_final.h5',
         "anchors_path": '../download/yolo_anchors.txt',
         "classes_path": '../download/cci.names',
-        "score": 0.2,
+        "score": 0.02,
         "iou": 0.45,
         "model_image_size": (224, 224),
         "gpu_num": 1,
@@ -48,7 +48,7 @@ class YOLO(object):
         tf.keras.backend.set_session(sess)
         self.sess=sess
 
-        # tf.set_session(
+        # tf.keras.backend.set_session(
         #     tf_debug.TensorBoardDebugWrapperSession(tf.Session(), "fangsixie-Inspiron-7572:6064"))
 
         #self.sess = tf.get_session()
@@ -112,7 +112,7 @@ class YOLO(object):
     def export_serving_model(self, path: str) -> None:
         tf.saved_model.simple_save(
             self.sess,
-            './export_model/1',
+            path,
             inputs={
                 self.yolo_model.input.name: self.yolo_model.input,
                 self.input_image_shape.name: self.input_image_shape,

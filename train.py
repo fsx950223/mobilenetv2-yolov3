@@ -29,7 +29,7 @@ def _main():
     files = tf.gfile.Glob(os.path.join(train_dataset_path, '*.tfrecords'))
     sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
     val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*.tfrecords'))
-    val_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
+    val_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), val_files))
     if is_tiny_version:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=1.4,
                                   freeze_body=1, weights_path='model_data/tiny_yolo_weights.h5')
@@ -54,7 +54,7 @@ def _main():
             # use custom yolo_loss Lambda layer.
             'yolo_loss': lambda y_true, y_pred: y_pred})
 
-        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),epochs=10, initial_epoch=0,
+        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),epochs=1, initial_epoch=0,
                   steps_per_epoch=max(1, sum // batch_size),
                   callbacks=[logging, checkpoint],
                   validation_data=data_generator(val_files, batch_size, input_shape, anchors,num_classes,train=False),
@@ -72,8 +72,11 @@ def _main():
                       loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
 
-        model.fit(epochs=20, initial_epoch=10, steps_per_epoch=max(1, 10000 // batch_size),
-                  callbacks=[logging, checkpoint, reduce_lr, early_stopping])
+        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),
+                            epochs=20, initial_epoch=10, steps_per_epoch=max(1, sum // batch_size),
+                            callbacks=[logging, checkpoint, reduce_lr, early_stopping],
+                            validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
+                            validation_steps=max(1, val_sum // batch_size))
         model.save_weights(log_dir + 'trained_weights_final.h5')
 
     # Further training if needed.
@@ -172,15 +175,14 @@ def data_generator(files: List[str], batch_size: int, input_shape: Tuple[int, in
             'image/object/bbox/label': tf.VarLenFeature(tf.int64)
         }
         features = tf.parse_single_example(example_proto, feature_description)
-        if train:
-            image, bbox = get_random_data(features, input_shape)
+        image, bbox = get_random_data(features, input_shape,train=train)
         y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
                                     [tf.float32, tf.float32, tf.float32])
         return image, y0, y1, y2
     if train:
         dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).shuffle(300).prefetch(batch_size).repeat().batch(batch_size)
     else:
-        dataset = dataset.map(parse, num_parallel_calls=cpu_count()).repeat().batch(batch_size).prefetch(
+        dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).repeat().batch(batch_size).prefetch(
             batch_size)
     iterator = dataset.make_one_shot_iterator()
     while True:
