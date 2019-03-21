@@ -54,15 +54,13 @@ def _main():
             # use custom yolo_loss Lambda layer.
             'yolo_loss': lambda y_true, y_pred: y_pred})
 
-        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),epochs=1, initial_epoch=0,
+        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),epochs=10, initial_epoch=0,
                   steps_per_epoch=max(1, sum // batch_size),
                   callbacks=[logging, checkpoint],
                   validation_data=data_generator(val_files, batch_size, input_shape, anchors,num_classes,train=False),
                   validation_steps=max(1, val_sum // batch_size))
         model.save_weights(log_dir + 'trained_weights_stage_1.h5')
 
-
-    tf.keras.backend.clear_session()
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
     if True:
@@ -73,10 +71,10 @@ def _main():
         print('Unfreeze all of the layers.')
 
         model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),
-                            epochs=20, initial_epoch=10, steps_per_epoch=max(1, sum // batch_size),
-                            callbacks=[logging, checkpoint, reduce_lr, early_stopping],
-                            validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
-                            validation_steps=max(1, val_sum // batch_size))
+                    epochs=20, initial_epoch=10, steps_per_epoch=max(1, sum // batch_size),
+                    callbacks=[logging, checkpoint, reduce_lr, early_stopping],
+                    validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
+                    validation_steps=max(1, val_sum // batch_size))
         model.save_weights(log_dir + 'trained_weights_final.h5')
 
     # Further training if needed.
