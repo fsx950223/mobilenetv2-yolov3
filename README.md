@@ -26,3 +26,6 @@ optional arguments:
 
 # Performance
 3 times faster than darknet53-yolov3 with alpha=1.4 and higher accuracy
+
+# Pascal Dataset
+I have packaged a pascal tfrecords for you.See [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF)
