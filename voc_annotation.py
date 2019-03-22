@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 import tensorflow as tf
 from os import path
-
+import numpy as np
 classes = ["FlowManagement", "Heapmaterial", "Illegal_parking", "laji", "outManagement"]
 tfrecords_size = 1000
 
@@ -47,6 +47,7 @@ for clazz in classes:
     for file in tf.gfile.ListDirectory(clazz):
         if tf.gfile.IsDirectory('%s/%s' % (clazz, file)):
             xmls = tf.gfile.Glob('%s/%s/**/*.xml' % (clazz, file))
+            np.random.shuffle(xmls)
             for xml in xmls:
                 if num >= tfrecords_size:
                     tf.gfile.Rename('cci_%d_%s.tfrecords' % (index_records, clazz),

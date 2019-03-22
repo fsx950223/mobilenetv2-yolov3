@@ -9,7 +9,7 @@ from timeit import default_timer as timer
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
-from yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
+from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body
 from yolo3.utils import letterbox_image
 import os
 
@@ -19,14 +19,15 @@ from tensorflow.python import debug as tf_debug
 
 class YOLO(object):
     _defaults = {
-        "model_path": '../download/trained_weights_stage_1.h5',
+        "model_path": './logs/000/trained_weights_stage_1.h5',
         #"model_path": './logs/000/trained_weights_final.h5',
-        "anchors_path": '../download/yolo_anchors.txt',
-        "classes_path": '../download/cci.names',
+        "anchors_path": 'model_data/yolo_anchors.txt',
+        "classes_path": '../pascal/VOCdevkit/voc_classes.txt',
         "score": 0.02,
         "iou": 0.45,
         "model_image_size": (224, 224),
         "gpu_num": 1,
+        "opt":"xla"
     }
 
     @classmethod
@@ -43,16 +44,21 @@ class YOLO(object):
         self.anchors = self._get_anchors()
         self.alpha=1.4
         config = tf.ConfigProto()
-        config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
-        sess = tf.Session(config=config)
-        tf.keras.backend.set_session(sess)
-        self.sess=sess
-
-        # tf.keras.backend.set_session(
-        #     tf_debug.TensorBoardDebugWrapperSession(tf.Session(), "fangsixie-Inspiron-7572:6064"))
-
-        #self.sess = tf.get_session()
-
+        if self.opt=="xla":
+            config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+            sess = tf.Session(config=config)
+            tf.keras.backend.set_session(sess)
+        elif self.opt=="mkl":
+            config.intra_op_parallelism_threads = 4
+            config.inter_op_parallelism_threads = 4
+            sess = tf.Session(config=config)
+            tf.keras.backend.set_session(sess)
+        elif self.opt=="debug":
+            sess=tf_debug.TensorBoardDebugWrapperSession(tf.get_session(), "fangsixie-Inspiron-7572:6064")
+            tf.keras.backend.set_session(sess)
+        else:
+            sess = tf.get_session()
+        self.sess = sess
         self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self) -> List[str]:
@@ -80,8 +86,8 @@ class YOLO(object):
         try:
             self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
-            self.yolo_model = tiny_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes, self.alpha) \
-                if is_tiny_version else yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
+            self.yolo_model = mobilenetv2_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes, self.alpha) \
+                if is_tiny_version else darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             self.yolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
         else:
             assert self.yolo_model.layers[-1].output_shape[-1] == \

@@ -239,7 +239,6 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
     true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
 
-    #m = true_boxes.shape[0]
     grid_shapes = [input_shape // {0: 32, 1: 16, 2: 8}[l] for l in range(num_layers)]
     y_true = [np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(anchor_mask[l]), 5 + num_classes),
                        dtype='float32') for l in range(num_layers)]
@@ -249,11 +248,7 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     anchor_maxes = anchors / 2.
     anchor_mins = -anchor_maxes
     valid_mask = boxes_wh[..., 0] > 0
-
-    #for b in range(m):
-        # Discard zero rows.
     wh = boxes_wh[valid_mask]
-    #if len(wh) == 0: continue
     # Expand dim to apply broadcasting.
     wh = np.expand_dims(wh, -2)
     box_maxes = wh / 2.

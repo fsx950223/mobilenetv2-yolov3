@@ -36,7 +36,7 @@ def rand(a=0, b=1):
     return np.random.rand() * (b - a) + a
 
 
-def get_random_data(features, input_shape, hue=.1, sat=.5, val=.5, con=.5, max_boxes=20, train:bool=True):
+def get_random_data(features, input_shape, hue=.1, sat=.1, val=.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
     image = tf.image.decode_jpeg(features['image/encoded'], channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
@@ -47,16 +47,13 @@ def get_random_data(features, input_shape, hue=.1, sat=.5, val=.5, con=.5, max_b
     ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
     ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
     label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
-    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
-    bbox = tf.transpose(bbox, [1, 0])
 
     nh = ih * tf.minimum(w / iw, h / ih)
     nw = iw * tf.minimum(w / iw, h / ih)
     # 将图片按照固定长宽比进行padding缩放
     dx = (w - nw) / 2
     dy = (h - nh) / 2
-    image = tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)],
-                            method=tf.image.ResizeMethod.BICUBIC)
+    image = tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)])
     new_image = tf.image.pad_to_bounding_box(image, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32),
                                              tf.cast(h, tf.int32), tf.cast(w, tf.int32))
     # place image
@@ -67,30 +64,20 @@ def get_random_data(features, input_shape, hue=.1, sat=.5, val=.5, con=.5, max_b
     image = tf.image.convert_image_dtype(image_color_padded, tf.float32) + new_image
 
     # flip image or not
-    flip = False
-    if train:
-        flip = rand() < .5
-        if flip: image = tf.image.flip_left_right(image)
-        image = tf.image.random_hue(image, hue)
-        image = tf.image.random_saturation(image, 1 - sat, 1 + sat)
-        image = tf.image.random_brightness(image, val)
-        image = tf.image.random_contrast(image, 1 - con, 1 + con)
-        image = tf.image.random_jpeg_quality(image, 80, 100)
-    # else:
-    #     image = image / 255.
-    xmin, ymin, xmax, ymax, label = tf.split(value=bbox, num_or_size_splits=5, axis=1)
     xmin = xmin * nw / iw + dx
     xmax = xmax * nw / iw + dx
     ymin = ymin * nh / ih + dy
     ymax = ymax * nh / ih + dy
 
-    if flip:
-        temp = xmin
-        xmin = xmax
-        xmax = temp
-    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 1)
+    if train:
+        image, xmin, xmax=tf.cond(tf.less(tf.random.uniform([]), 0.5),lambda: (tf.image.flip_left_right(image),w-xmax,w-xmin),lambda :(image,xmin,xmax))
+        image = tf.image.random_hue(image, hue)
+        image = tf.image.random_saturation(image, 1 - sat, 1 + sat)
+        image = tf.image.random_brightness(image, val)
+        image = tf.image.random_jpeg_quality(image, min_jpeg_quality, max_jpeg_quality)
 
-
+    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+    bbox = tf.transpose(bbox, [1, 0])
 
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
     bbox = tf.clip_by_value(bbox, clip_value_min=0, clip_value_max=input_shape[0] - 1)

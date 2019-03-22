@@ -26,9 +26,9 @@ def _main():
     val_dataset_path = '../pascal/VOCdevkit/val'
 
     is_tiny_version = True  # default setting
-    files = tf.gfile.Glob(os.path.join(train_dataset_path, '*.tfrecords'))
+    files = tf.gfile.Glob(os.path.join(train_dataset_path, '*VOC2007*.tfrecords'))
     sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-    val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*.tfrecords'))
+    val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*VOC2007*.tfrecords'))
     val_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), val_files))
     if is_tiny_version:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=1.4,
@@ -54,11 +54,12 @@ def _main():
             # use custom yolo_loss Lambda layer.
             'yolo_loss': lambda y_true, y_pred: y_pred})
 
-        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),epochs=10, initial_epoch=0,
-                  steps_per_epoch=max(1, sum // batch_size),
-                  callbacks=[logging, checkpoint],
-                  validation_data=data_generator(val_files, batch_size, input_shape, anchors,num_classes,train=False),
-                  validation_steps=max(1, val_sum // batch_size))
+        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),
+                    epochs=5, initial_epoch=0,
+                    steps_per_epoch=max(1, sum // batch_size),
+                    callbacks=[logging, checkpoint],
+                    validation_data=data_generator(val_files, batch_size, input_shape, anchors,num_classes,train=False),
+                    validation_steps=max(1, val_sum // batch_size))
         model.save_weights(log_dir + 'trained_weights_stage_1.h5')
 
     # Unfreeze and continue training, to fine-tune.
@@ -71,8 +72,8 @@ def _main():
         print('Unfreeze all of the layers.')
 
         model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),
-                    epochs=20, initial_epoch=10, steps_per_epoch=max(1, sum // batch_size),
-                    callbacks=[logging, checkpoint, reduce_lr, early_stopping],
+                    epochs=10, initial_epoch=5, steps_per_epoch=max(1, sum // batch_size),
+                    callbacks=[checkpoint, reduce_lr, early_stopping],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
                     validation_steps=max(1, val_sum // batch_size))
         model.save_weights(log_dir + 'trained_weights_final.h5')
@@ -102,7 +103,6 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
 
                  weights_path: str = 'model_data/yolo_weights.h5') -> tf.keras.models.Model:
     """create the training model"""
-    #tf.keras.backend.clear_session()  # get a new session
     h, w = input_shape
     num_anchors = len(anchors)
     x_data = tf.keras.layers.Input(shape=(None, None, 3))
@@ -161,31 +161,33 @@ def data_generator(files: List[str], batch_size: int, input_shape: Tuple[int, in
                    anchors: List[float],
                    num_classes: int,
                    train:bool=True):
-    dataset = tf.data.Dataset.from_tensor_slices(files)
-    """data generator for fit_generator"""
-    def parse(example_proto):
-        feature_description = {
-            'image/encoded': tf.FixedLenFeature([], tf.string),
-            'image/object/bbox/xmin': tf.VarLenFeature(tf.float32),
-            'image/object/bbox/xmax': tf.VarLenFeature(tf.float32),
-            'image/object/bbox/ymin': tf.VarLenFeature(tf.float32),
-            'image/object/bbox/ymax': tf.VarLenFeature(tf.float32),
-            'image/object/bbox/label': tf.VarLenFeature(tf.int64)
-        }
-        features = tf.parse_single_example(example_proto, feature_description)
-        image, bbox = get_random_data(features, input_shape,train=train)
-        y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
-                                    [tf.float32, tf.float32, tf.float32])
-        return image, y0, y1, y2
-    if train:
-        dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).shuffle(300).prefetch(batch_size).repeat().batch(batch_size)
-    else:
-        dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).repeat().batch(batch_size).prefetch(
-            batch_size)
-    iterator = dataset.make_one_shot_iterator()
-    while True:
-        image,y0, y1, y2 = iterator.get_next()
-        yield [image.numpy(), y0.numpy(),y1.numpy(),y2.numpy()], np.zeros(batch_size)
+    with tf.device('/cpu:0'):
+        dataset = tf.data.Dataset.from_tensor_slices(files)
+        """data generator for fit_generator"""
+        def parse(example_proto):
+            feature_description = {
+                'image/encoded': tf.FixedLenFeature([], tf.string),
+                'image/object/bbox/xmin': tf.VarLenFeature(tf.float32),
+                'image/object/bbox/xmax': tf.VarLenFeature(tf.float32),
+                'image/object/bbox/ymin': tf.VarLenFeature(tf.float32),
+                'image/object/bbox/ymax': tf.VarLenFeature(tf.float32),
+                'image/object/bbox/label': tf.VarLenFeature(tf.int64)
+            }
+            features = tf.parse_single_example(example_proto, feature_description)
+            image, bbox = get_random_data(features, input_shape,train=train)
+            y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
+                                        [tf.float32, tf.float32, tf.float32])
+            return [image, y0, y1, y2]
+        if train:
+            dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).shuffle(300).prefetch(batch_size).repeat().batch(batch_size)
+        else:
+            dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).repeat().batch(batch_size).prefetch(
+                batch_size)
+
+        iterator = dataset.make_one_shot_iterator()
+        while True:
+            image,y0, y1, y2 = iterator.get_next()
+            yield [image.numpy(), y0.numpy(),y1.numpy(),y2.numpy()], np.zeros(batch_size)
 
 if __name__ == '__main__':
     _main()
