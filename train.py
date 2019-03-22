@@ -4,6 +4,7 @@ Retrain the YOLO model for your own dataset.
 
 import numpy as np
 import tensorflow as tf
+
 from yolo3.model import preprocess_true_boxes, darknet_yolo_body, mobilenetv2_yolo_body, yolo_loss
 from yolo3.utils import get_random_data
 from typing import Tuple, List
@@ -100,7 +101,6 @@ def get_anchors(anchors_path: str) -> List[List[float]]:
 def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]], num_classes: int,
                  load_pretrained: bool = True,
                  freeze_body: int = 2,
-
                  weights_path: str = 'model_data/yolo_weights.h5') -> tf.keras.models.Model:
     """create the training model"""
     h, w = input_shape
@@ -110,7 +110,6 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
 
     model_body = darknet_yolo_body(x_data, num_anchors // 3, num_classes)
-
     print('Create Darknet-YOLOv3 model with {} anchors and {} classes.'.format(num_anchors, num_classes))
     if load_pretrained:
         model_body.load_weights(weights_path, by_name=True, skip_mismatch=True)
@@ -130,17 +129,14 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
 def create_mobilenetv2_model(input_shape, anchors, num_classes, load_pretrained: bool = True,
                       freeze_body: int = 2, alpha: float = 1.0,
                       weights_path: str = 'model_data/tiny_yolo_weights.h5'):
-
+    tf.keras.backend.clear_session()
     h, w = input_shape
     num_anchors = len(anchors)
     x_data = tf.keras.layers.Input(shape=(None, None, 3))
     y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
-
     model_body = mobilenetv2_yolo_body(x_data,num_anchors // 3, num_classes, alpha)
-
     print('Create MobilenetV2-YOLOv3 model with {} anchors and {} classes.'.format(num_anchors, num_classes))
-
     if load_pretrained:
         model_body.load_weights(weights_path, by_name=True, skip_mismatch=True)
         print('Load weights {}.'.format(weights_path))

@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from typing import List, Tuple
 from yolo3.utils import compose
-model={}
+
 @wraps(tf.keras.layers.Conv2D)
 def DarknetConv2D(*args, **kwargs):
     """Wrapper to set Darknet parameters for Convolution2D."""
@@ -82,7 +82,6 @@ def darknet_yolo_body(inputs, num_anchors, num_classes):
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 def mobilenetv2_yolo_body(inputs,num_anchors, num_classes,alpha=1.0):
-
     mobilenetv2=tf.keras.applications.MobileNetV2(alpha=alpha,input_tensor=inputs,include_top=False,weights='imagenet')
     x, y1 = make_last_layers(mobilenetv2.output, 512, num_anchors * (num_classes + 5))
     x = compose(
@@ -177,6 +176,7 @@ def yolo_eval(yolo_outputs: List[tf.Tensor],
     """Evaluate YOLO model on given input and return filtered boxes."""
     num_layers = len(yolo_outputs)
     anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
+
     input_shape = tf.shape(yolo_outputs[0])[1:3] * 32
     boxes = []
     box_scores = []
@@ -387,6 +387,5 @@ def yolo_loss(args, anchors, num_classes: int, ignore_thresh: float = .5, print_
         class_loss = tf.reduce_sum(class_loss) / mf
         loss += xy_loss + wh_loss + confidence_loss + class_loss
         if print_loss:
-            loss = tf.print(loss, [loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask)],
-                            message='loss: ')
+            loss = tf.print(loss, [loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask)],message='loss: ')
     return loss
