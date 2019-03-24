@@ -19,11 +19,11 @@ from tensorflow.python import debug as tf_debug
 
 class YOLO(object):
     _defaults = {
-        "model_path": './logs/000/trained_weights_stage_1.h5',
+        "model_path": '../download/trained_weights_final5.h5',
         #"model_path": './logs/000/trained_weights_final.h5',
         "anchors_path": 'model_data/yolo_anchors.txt',
-        "classes_path": '../pascal/VOCdevkit/voc_classes.txt',
-        "score": 0.02,
+        "classes_path": 'model_data/voc_classes.txt',
+        "score": 0.1,
         "iou": 0.45,
         "model_image_size": (224, 224),
         "gpu_num": 1,
@@ -147,7 +147,7 @@ class YOLO(object):
             [self.boxes, self.scores, self.classes],
             feed_dict={
                 self.yolo_model.input: image_data,
-                self.input_image_shape: [image.size[1], image.size[0]],
+                self.input_image_shape: [image.size[1], image.size[0]]
             })
         end = timer()
 

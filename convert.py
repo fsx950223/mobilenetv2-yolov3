@@ -11,16 +11,8 @@ import os
 from collections import defaultdict
 
 import numpy as np
-from keras import backend as K
-from keras.layers import (Conv2D, Input, ZeroPadding2D, Add,
-                          UpSampling2D, MaxPooling2D, Concatenate)
-from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.normalization import BatchNormalization
-from keras.models import Model
-from keras.regularizers import l2
-from keras.utils.vis_utils import plot_model as plot
-
-
+import tensorflow as tf
+tf.enable_eager_execution()
 parser = argparse.ArgumentParser(description='Darknet To Keras Converter.')
 parser.add_argument('config_path', help='Path to Darknet cfg file.')
 parser.add_argument('weights_path', help='Path to Darknet weights file.')
@@ -85,7 +77,7 @@ def _main(args):
     cfg_parser.read_file(unique_config_file)
 
     print('Creating Keras model.')
-    input_layer = Input(shape=(None, None, 3))
+    input_layer = tf.keras.layers.Input(shape=(None, None, 3))
     prev_layer = input_layer
     all_layers = []
 
@@ -108,7 +100,7 @@ def _main(args):
             # Setting weights.
             # Darknet serializes convolutional weights as:
             # [bias/beta, [gamma, mean, variance], conv_weights]
-            prev_layer_shape = K.int_shape(prev_layer)
+            prev_layer_shape = prev_layer.shape
 
             weights_shape = (size, size, prev_layer_shape[-1], filters)
             darknet_w_shape = (filters, weights_shape[2], size, size)
@@ -164,25 +156,25 @@ def _main(args):
             # Create Conv2D layer
             if stride>1:
                 # Darknet uses left and top padding instead of 'same' mode
-                prev_layer = ZeroPadding2D(((1,0),(1,0)))(prev_layer)
-            conv_layer = (Conv2D(
+                prev_layer =tf.keras.layers.ZeroPadding2D(((1,0),(1,0)))(prev_layer)
+            conv_layer = (tf.keras.layers.Conv2D(
                 filters, (size, size),
                 strides=(stride, stride),
-                kernel_regularizer=l2(weight_decay),
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                 use_bias=not batch_normalize,
                 weights=conv_weights,
                 activation=act_fn,
                 padding=padding))(prev_layer)
 
             if batch_normalize:
-                conv_layer = (BatchNormalization(
+                conv_layer = (tf.keras.layers.BatchNormalization(
                     weights=bn_weight_list))(conv_layer)
             prev_layer = conv_layer
 
             if activation == 'linear':
                 all_layers.append(prev_layer)
             elif activation == 'leaky':
-                act_layer = LeakyReLU(alpha=0.1)(prev_layer)
+                act_layer = tf.keras.layers.LeakyReLU(alpha=0.1)(prev_layer)
                 prev_layer = act_layer
                 all_layers.append(act_layer)
 
@@ -191,7 +183,7 @@ def _main(args):
             layers = [all_layers[i] for i in ids]
             if len(layers) > 1:
                 print('Concatenating route layers:', layers)
-                concatenate_layer = Concatenate()(layers)
+                concatenate_layer = tf.keras.layers.Concatenate()(layers)
                 all_layers.append(concatenate_layer)
                 prev_layer = concatenate_layer
             else:
@@ -203,7 +195,7 @@ def _main(args):
             size = int(cfg_parser[section]['size'])
             stride = int(cfg_parser[section]['stride'])
             all_layers.append(
-                MaxPooling2D(
+                tf.keras.layers.MaxPooling2D(
                     pool_size=(size, size),
                     strides=(stride, stride),
                     padding='same')(prev_layer))
@@ -213,13 +205,13 @@ def _main(args):
             index = int(cfg_parser[section]['from'])
             activation = cfg_parser[section]['activation']
             assert activation == 'linear', 'Only linear activation supported.'
-            all_layers.append(Add()([all_layers[index], prev_layer]))
+            all_layers.append(tf.keras.layers.Add()([all_layers[index], prev_layer]))
             prev_layer = all_layers[-1]
 
         elif section.startswith('upsample'):
             stride = int(cfg_parser[section]['stride'])
             assert stride == 2, 'Only stride=2 supported.'
-            all_layers.append(UpSampling2D(stride)(prev_layer))
+            all_layers.append(tf.keras.layers.UpSampling2D(stride)(prev_layer))
             prev_layer = all_layers[-1]
 
         elif section.startswith('yolo'):
@@ -236,7 +228,7 @@ def _main(args):
 
     # Create and save model.
     if len(out_index)==0: out_index.append(len(all_layers)-1)
-    model = Model(inputs=input_layer, outputs=[all_layers[i] for i in out_index])
+    model = tf.keras.models.Model(inputs=input_layer, outputs=[all_layers[i] for i in out_index])
     print(model.summary())
     if args.weights_only:
         model.save_weights('{}'.format(output_path))
@@ -254,7 +246,7 @@ def _main(args):
         print('Warning: {} unused weights'.format(remaining_weights))
 
     if args.plot_model:
-        plot(model, to_file='{}.png'.format(output_root), show_shapes=True)
+        tf.keras.utils.plot_model(model, to_file='{}.png'.format(output_root), show_shapes=True)
         print('Saved model plot to {}.png'.format(output_root))
 
 

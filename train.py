@@ -16,28 +16,29 @@ os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 tf.enable_eager_execution()
 def _main():
     log_dir = 'logs/000/'
-    classes_path = '../pascal/VOCdevkit/voc_classes.txt'
+    classes_path = 'model_data/voc_classes.txt'
     anchors_path = 'model_data/yolo_anchors.txt'
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    input_shape = (224, 224)  # multiple of 32, hw
+    input_shape = (416, 416)  # multiple of 32, hw
     batch_size = 4
     train_dataset_path='../pascal/VOCdevkit/train'
     val_dataset_path = '../pascal/VOCdevkit/val'
 
-    is_tiny_version = True  # default setting
-    files = tf.gfile.Glob(os.path.join(train_dataset_path, '*VOC2007*.tfrecords'))
+
+    files = tf.gfile.Glob(os.path.join(train_dataset_path, '*.tfrecords'))
     sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-    val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*VOC2007*.tfrecords'))
+    val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*.tfrecords'))
     val_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), val_files))
+    is_tiny_version = False  # default setting
     if is_tiny_version:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=1.4,
                                   freeze_body=1, weights_path='model_data/tiny_yolo_weights.h5')
     else:
-        model = create_darknet_model(train_dataset_path,batch_size, input_shape, anchors, num_classes,
+        model = create_darknet_model(input_shape, anchors, num_classes,
                              freeze_body=2,
-                             weights_path='model_data/darknet53_weights.h5')  # make sure you know what you freeze
+                             weights_path='model_data/yolo_weights.h5')  # make sure you know what you freeze
     is_multi_gpu=len(gpus.split(','))>1
     logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
@@ -58,7 +59,7 @@ def _main():
                       distribute=strategy if is_multi_gpu else None)
 
         model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
-                    epochs=5, initial_epoch=0,
+                    epochs=30, initial_epoch=0,
                     steps_per_epoch=max(1, sum // batch_size),
                     callbacks=[logging, checkpoint],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors,num_classes,train=False),
@@ -70,12 +71,12 @@ def _main():
     if True:
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
-        model.compile(optimizer=tf.train.AdamOptimizer(1e-4),
-                      loss={'yolo_loss': lambda y_true, y_pred: y_pred},distribute=strategy if is_multi_gpu else None)  # recompile to apply the change
+        model.compile(optimizer=tf.keras.optimizers.Adam(1e-4),
+                      loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
 
         model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
-                    epochs=10, initial_epoch=5, steps_per_epoch=max(1, sum // batch_size),
+                    epochs=60, initial_epoch=30, steps_per_epoch=max(1, sum // batch_size),
                     callbacks=[checkpoint, reduce_lr, early_stopping],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
                     validation_steps=max(1, val_sum // batch_size))
@@ -114,7 +115,7 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
     model_body = darknet_yolo_body(x_data, num_anchors // 3, num_classes)
     print('Create Darknet-YOLOv3 model with {} anchors and {} classes.'.format(num_anchors, num_classes))
     if load_pretrained:
-        model_body.load_weights(weights_path, by_name=True, skip_mismatch=True)
+        model_body.load_weights(weights_path, by_name=True)
         print('Load weights {}.'.format(weights_path))
     if freeze_body in [1, 2]:
         # Freeze the darknet body or freeze all but 2 output layers.
