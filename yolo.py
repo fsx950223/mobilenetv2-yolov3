@@ -44,6 +44,7 @@ class YOLO(object):
         self.anchors = self._get_anchors()
         self.alpha=1.4
         config = tf.ConfigProto()
+        tf.keras.backend.set_learning_phase(0)
         if self.opt=="xla":
             config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
             sess = tf.Session(config=config)
@@ -147,7 +148,6 @@ class YOLO(object):
             feed_dict={
                 self.yolo_model.input: image_data,
                 self.input_image_shape: [image.size[1], image.size[0]],
-                tf.keras.backend.learning_phase(): 0
             })
         end = timer()
 
@@ -210,8 +210,7 @@ class YOLO(object):
             [self.boxes, self.scores, self.classes],
             feed_dict={
                 self.yolo_model.input: image_data,
-                self.input_image_shape: [image.size[1], image.size[0]],
-                tf.keras.backend.learning_phase(): 0
+                self.input_image_shape: [image.size[1], image.size[0]]
             })
 
         return out_boxes, out_scores, reversed(list(enumerate(out_classes)))

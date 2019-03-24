@@ -11,7 +11,8 @@ from typing import Tuple, List
 from multiprocessing import cpu_count
 import os
 from functools import reduce
-
+gpus="0"
+os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 tf.enable_eager_execution()
 def _main():
     log_dir = 'logs/000/'
@@ -20,7 +21,6 @@ def _main():
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    gpu_num = 1
     input_shape = (224, 224)  # multiple of 32, hw
     batch_size = 4
     train_dataset_path='../pascal/VOCdevkit/train'
@@ -38,8 +38,7 @@ def _main():
         model = create_darknet_model(train_dataset_path,batch_size, input_shape, anchors, num_classes,
                              freeze_body=2,
                              weights_path='model_data/darknet53_weights.h5')  # make sure you know what you freeze
-    if gpu_num >= 2:
-        model = tf.keras.utils.multi_gpu_model(model, gpus=gpu_num)
+    is_multi_gpu=len(gpus.split(','))>1
     logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
                                                     monitor='val_loss', save_weights_only=True, save_best_only=True,
@@ -49,13 +48,16 @@ def _main():
 
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
+    if is_multi_gpu:
+        strategy = tf.distribute.MirroredStrategy()
 
     if True:
-        model.compile(optimizer=tf.keras.optimizers.Adam(lr=1e-3), loss={
+        model.compile(optimizer=tf.train.AdamOptimizer(1e-3),loss={
             # use custom yolo_loss Lambda layer.
-            'yolo_loss': lambda y_true, y_pred: y_pred})
+            'yolo_loss': lambda y_true, y_pred: y_pred},
+                      distribute=strategy if is_multi_gpu else None)
 
-        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),
+        model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
                     epochs=5, initial_epoch=0,
                     steps_per_epoch=max(1, sum // batch_size),
                     callbacks=[logging, checkpoint],
@@ -68,11 +70,11 @@ def _main():
     if True:
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
-        model.compile(optimizer=tf.keras.optimizers.Adam(lr=1e-4),
-                      loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
+        model.compile(optimizer=tf.train.AdamOptimizer(1e-4),
+                      loss={'yolo_loss': lambda y_true, y_pred: y_pred},distribute=strategy if is_multi_gpu else None)  # recompile to apply the change
         print('Unfreeze all of the layers.')
 
-        model.fit_generator(data_generator(files,batch_size, input_shape, anchors, num_classes),
+        model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
                     epochs=10, initial_epoch=5, steps_per_epoch=max(1, sum // batch_size),
                     callbacks=[checkpoint, reduce_lr, early_stopping],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
@@ -173,17 +175,13 @@ def data_generator(files: List[str], batch_size: int, input_shape: Tuple[int, in
             image, bbox = get_random_data(features, input_shape,train=train)
             y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
                                         [tf.float32, tf.float32, tf.float32])
-            return [image, y0, y1, y2]
+            return (image, y0, y1, y2),0
         if train:
             dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).shuffle(300).prefetch(batch_size).repeat().batch(batch_size)
         else:
             dataset = dataset.interleave(lambda x:tf.data.TFRecordDataset(x).map(parse,num_parallel_calls=cpu_count()),cycle_length=len(files)).repeat().batch(batch_size).prefetch(
                 batch_size)
-
-        iterator = dataset.make_one_shot_iterator()
-        while True:
-            image,y0, y1, y2 = iterator.get_next()
-            yield [image.numpy(), y0.numpy(),y1.numpy(),y2.numpy()], np.zeros(batch_size)
+        return dataset
 
 if __name__ == '__main__':
     _main()

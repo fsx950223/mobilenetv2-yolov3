@@ -99,6 +99,23 @@ def mobilenetv2_yolo_body(inputs,num_anchors, num_classes,alpha=1.0):
     return tf.keras.models.Model(inputs, [y1, y2,y3])
 
 
+def inception_yolo_body(inputs,num_anchors, num_classes,alpha=1.0):
+    inception=tf.keras.applications.InceptionResNetV2(alpha=alpha,input_tensor=inputs,include_top=False,weights='imagenet')
+    x, y1 = make_last_layers(inception.output, 512, num_anchors * (num_classes + 5))
+    x = compose(
+        DarknetConv2D_BN_Leaky(256, (1, 1)),
+        tf.keras.layers.UpSampling2D(2))(x)
+    x = tf.keras.layers.Concatenate()([x, inception.get_layer('block_12_expand_relu').output])
+    x, y2 = make_last_layers(x, 256, num_anchors * (num_classes + 5))
+
+    x = compose(
+        DarknetConv2D_BN_Leaky(128, (1, 1)),
+        tf.keras.layers.UpSampling2D(2))(x)
+    x = tf.keras.layers.Concatenate()([x, inception.get_layer('block_5_expand_relu').output])
+    x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
+
+    return tf.keras.models.Model(inputs, [y1, y2,y3])
+
 def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_shape: tf.Tensor,
               calc_loss: bool = False) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     """Convert final layer features to bounding box parameters."""

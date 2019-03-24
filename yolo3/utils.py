@@ -36,7 +36,7 @@ def rand(a=0, b=1):
     return np.random.rand() * (b - a) + a
 
 
-def get_random_data(features, input_shape, hue=.1, sat=.1, val=.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def get_random_data(features, input_shape, hue=.1, sat=1.1, val=.1, max_boxes=20,min_jpeg_quality=100,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
     image = tf.image.decode_jpeg(features['image/encoded'], channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
@@ -72,9 +72,10 @@ def get_random_data(features, input_shape, hue=.1, sat=.1, val=.1, max_boxes=20,
     if train:
         image, xmin, xmax=tf.cond(tf.less(tf.random.uniform([]), 0.5),lambda: (tf.image.flip_left_right(image),w-xmax,w-xmin),lambda :(image,xmin,xmax))
         image = tf.image.random_hue(image, hue)
-        image = tf.image.random_saturation(image, 1 - sat, 1 + sat)
+        image = tf.image.random_saturation(image, 1/sat, sat)
         image = tf.image.random_brightness(image, val)
-        image = tf.image.random_jpeg_quality(image, min_jpeg_quality, max_jpeg_quality)
+        if min_jpeg_quality<max_jpeg_quality:
+            image = tf.image.random_jpeg_quality(image, min_jpeg_quality, max_jpeg_quality)
 
     bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
