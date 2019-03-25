@@ -71,7 +71,8 @@ def _main():
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
         model.compile(optimizer=tf.train.AdamOptimizer(1e-4),
-                      loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
+                      loss={'yolo_loss': lambda y_true, y_pred: y_pred},
+                      distribute=strategy if is_multi_gpu else None)  # recompile to apply the change
         print('Unfreeze all of the layers.')
         model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
                     epochs=60, initial_epoch=30, steps_per_epoch=max(1, 1 // batch_size),

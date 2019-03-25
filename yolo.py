@@ -16,7 +16,9 @@ import os
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+gpus=""
+os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+gpu_num=len(gpus.split(','))
 class YOLO(object):
     _defaults = {
         "model_path": '../download/trained_weights_final6.h5',
@@ -41,7 +43,7 @@ class YOLO(object):
         "score": 0.2,
         "iou": 0.5,
         "model_image_size": (224, 224),
-        "gpu_num": 1,
+        #"gpu_num": 1,
         "opt":"xla"
     }
 
