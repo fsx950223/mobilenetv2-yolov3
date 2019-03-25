@@ -16,15 +16,30 @@ import os
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
 
-
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 class YOLO(object):
     _defaults = {
-        "model_path": '../download/trained_weights_final5.h5',
+        "model_path": '../download/trained_weights_final6.h5',
         #"model_path": './logs/000/trained_weights_final.h5',
         "anchors_path": 'model_data/yolo_anchors.txt',
         "classes_path": 'model_data/voc_classes.txt',
-        "score": 0.1,
-        "iou": 0.45,
+        "backbone":"mobilenetv2",
+        "model_config":{
+            "mobilenetv2":{
+                "input_size":(224,224),
+                "model_path": '../download/trained_weights_final6.h5',
+                "anchors_path":'model_data/yolo_anchors.txt',
+                "classes_path":'model_data/voc_classes.txt'
+            },
+            "darknet53":{
+                "input_size":(416,416),
+                "model_path": '../download/trained_weights_final6.h5',
+                "anchors_path": 'model_data/yolo_anchors.txt',
+                "classes_path": 'model_data/voc_classes.txt'
+            }
+        },
+        "score": 0.2,
+        "iou": 0.5,
         "model_image_size": (224, 224),
         "gpu_num": 1,
         "opt":"xla"

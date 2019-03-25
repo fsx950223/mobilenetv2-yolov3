@@ -21,7 +21,7 @@ def _main():
     class_names = get_classes(classes_path)
     num_classes = len(class_names)
     anchors = get_anchors(anchors_path)
-    input_shape = (416, 416)  # multiple of 32, hw
+    input_shape = (224, 224)  # multiple of 32, hw
     batch_size = 4
     train_dataset_path='../pascal/VOCdevkit/train'
     val_dataset_path = '../pascal/VOCdevkit/val'
@@ -31,7 +31,7 @@ def _main():
     sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
     val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*.tfrecords'))
     val_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), val_files))
-    is_tiny_version = False  # default setting
+    is_tiny_version = True  # default setting
     if is_tiny_version:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=1.4,
                                   freeze_body=1, weights_path='model_data/tiny_yolo_weights.h5')
@@ -53,9 +53,8 @@ def _main():
         strategy = tf.distribute.MirroredStrategy()
 
     if True:
-        model.compile(optimizer=tf.train.AdamOptimizer(1e-3),loss={
-            # use custom yolo_loss Lambda layer.
-            'yolo_loss': lambda y_true, y_pred: y_pred},
+        model.compile(optimizer=tf.train.AdamOptimizer(1e-3),
+                      loss={'yolo_loss': lambda y_true, y_pred: y_pred},
                       distribute=strategy if is_multi_gpu else None)
 
         model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
@@ -71,15 +70,14 @@ def _main():
     if True:
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
-        model.compile(optimizer=tf.keras.optimizers.Adam(1e-4),
+        model.compile(optimizer=tf.train.AdamOptimizer(1e-4),
                       loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
-
         model.fit(data_generator(files,batch_size, input_shape, anchors, num_classes),
-                    epochs=60, initial_epoch=30, steps_per_epoch=max(1, sum // batch_size),
+                    epochs=60, initial_epoch=30, steps_per_epoch=max(1, 1 // batch_size),
                     callbacks=[checkpoint, reduce_lr, early_stopping],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
-                    validation_steps=max(1, val_sum // batch_size))
+                    validation_steps=max(1, 1 // batch_size))
         model.save_weights(log_dir + 'trained_weights_final.h5')
 
     # Further training if needed.
