@@ -84,7 +84,7 @@ def _main():
                     callbacks=[logging, checkpoint],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors,num_classes,train=False),
                     validation_steps=max(1, val_sum // batch_size))
-        model.save_weights(log_dir + 'trained_weights_stage_1.h5')
+        model.save_weights(log_dir + backbone+'_trained_weights_stage_1.h5')
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
@@ -99,7 +99,7 @@ def _main():
                     callbacks=[checkpoint, reduce_lr, early_stopping],
                     validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes,train=False),
                     validation_steps=max(1, val_sum // batch_size))
-        model.save_weights(log_dir + 'trained_weights_final.h5')
+        model.save_weights(log_dir + backbone+'_trained_weights_final.h5')
 
     # Further training if needed.
 
@@ -127,7 +127,7 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
     tf.keras.backend.clear_session()
     h, w = input_shape
     num_anchors = len(anchors)
-    x_data = tf.keras.layers.Input(shape=(None, None, 3))
+    x_data = tf.keras.layers.Input(shape=(h, w, 3))
     y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
 
@@ -154,7 +154,7 @@ def create_mobilenetv2_model(input_shape, anchors, num_classes, load_pretrained:
     tf.keras.backend.clear_session()
     h, w = input_shape
     num_anchors = len(anchors)
-    x_data = tf.keras.layers.Input(shape=(None, None, 3))
+    x_data = tf.keras.layers.Input(shape=(h, w, 3))
     y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
     model_body = mobilenetv2_yolo_body(x_data,num_anchors // 3, num_classes, alpha)
@@ -179,7 +179,7 @@ def create_inception_model(input_shape, anchors, num_classes, load_pretrained: b
     tf.keras.backend.clear_session()
     h, w = input_shape
     num_anchors = len(anchors)
-    x_data = tf.keras.layers.Input(shape=(None, None, 3))
+    x_data = tf.keras.layers.Input(shape=(h, w, 3))
     y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
     model_body = inception_yolo_body(x_data,num_anchors // 3, num_classes)

@@ -230,8 +230,7 @@ class YOLO(object):
         out_boxes, out_scores, out_classes = self.sess.run(
             [self.boxes, self.scores, self.classes],
             feed_dict={
-                self.yolo_model.input: image_data,
-                self.input_image_shape: [image.size[1], image.size[0]]
+                self.yolo_model.input: image_data
             })
 
         return out_boxes, out_scores, reversed(list(enumerate(out_classes)))

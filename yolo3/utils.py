@@ -35,7 +35,7 @@ def rand(a=0, b=1):
     return np.random.rand() * (b - a) + a
 
 
-def get_random_data(features, input_shape, hue=.2, sat=.2, jitter=.1,scale=.1,val=.2,cont=.2,noise=0.2, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def get_random_data(features, input_shape, hue=.2, sat=.2,val=.2,cont=.2,noise=0.2, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
     image = tf.image.decode_jpeg(features['image/encoded'], channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
