@@ -12,6 +12,7 @@ from collections import defaultdict
 
 import numpy as np
 import tensorflow as tf
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 tf.enable_eager_execution()
 parser = argparse.ArgumentParser(description='Darknet To Keras Converter.')
 parser.add_argument('config_path', help='Path to Darknet cfg file.')

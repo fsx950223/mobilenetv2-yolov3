@@ -35,7 +35,7 @@ def rand(a=0, b=1):
     return np.random.rand() * (b - a) + a
 
 
-def get_random_data(features, input_shape, hue=.1, sat=1.1, val=.1,cont=1.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def get_random_data(features, input_shape, hue=.2, sat=.2, jitter=.1,scale=.1,val=.2,cont=.2,noise=0.2, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
     image = tf.image.decode_jpeg(features['image/encoded'], channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
@@ -49,15 +49,13 @@ def get_random_data(features, input_shape, hue=.1, sat=1.1, val=.1,cont=1.1, max
 
     nh = ih * tf.minimum(w / iw, h / ih)
     nw = iw * tf.minimum(w / iw, h / ih)
-    # 将图片按照固定长宽比进行padding缩放
-    dx = (w - nw) / 2
-    dy = (h - nh) / 2
+    dx = (w-nw) / 2
+    dy = (h-nh) / 2
     image = tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)])
-    new_image = tf.image.pad_to_bounding_box(image, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32),
-                                             tf.cast(h, tf.int32), tf.cast(w, tf.int32))
+    new_image = tf.image.pad_to_bounding_box(image,tf.cast(dy, tf.int32),tf.cast(dx, tf.int32),tf.cast(h, tf.int32), tf.cast(w, tf.int32))
     # place image
     image_ones = tf.ones_like(image)
-    image_ones_padded = tf.image.pad_to_bounding_box(image_ones, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32),
+    image_ones_padded = tf.image.pad_to_bounding_box(image_ones,tf.cast(dy, tf.int32),tf.cast(dx, tf.int32),
                                                      tf.cast(h, tf.int32), tf.cast(w, tf.int32))
     image_color_padded = (1 - image_ones_padded) * 128
     image = tf.image.convert_image_dtype(image_color_padded, tf.float32) + new_image
@@ -73,13 +71,16 @@ def get_random_data(features, input_shape, hue=.1, sat=1.1, val=.1,cont=1.1, max
         if hue>0:
             image = tf.image.random_hue(image, hue)
         if sat>1:
-            image = tf.image.random_saturation(image, 1/sat, sat)
+            image = tf.image.random_saturation(image, 1-sat, 1+sat)
         if val>0:
             image = tf.image.random_brightness(image, val)
         if cont>1:
-            image=tf.image.random_contrast(image,1/cont,cont)
+            image=tf.image.random_contrast(image,1-cont,1+cont)
         if min_jpeg_quality<max_jpeg_quality:
             image = tf.image.random_jpeg_quality(image, min_jpeg_quality, max_jpeg_quality)
+        image=image+tf.cast( tf.random.uniform(shape=[input_shape[1], input_shape[0], 3],
+                   minval=0,
+                   maxval=noise), tf.float32)
 
     bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
