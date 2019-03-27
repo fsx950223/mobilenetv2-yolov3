@@ -9,7 +9,7 @@ from timeit import default_timer as timer
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
-from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body
+from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,inception_yolo_body
 from yolo3.utils import letterbox_image
 import os
 
@@ -21,10 +21,6 @@ os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num=len(gpus.split(','))
 class YOLO(object):
     _defaults = {
-        "model_path": '../download/trained_weights_final6.h5',
-        #"model_path": './logs/000/trained_weights_final.h5',
-        "anchors_path": 'model_data/yolo_anchors.txt',
-        "classes_path": 'model_data/voc_classes.txt',
         "backbone":"mobilenetv2",
         "model_config":{
             "mobilenetv2":{
@@ -38,12 +34,16 @@ class YOLO(object):
                 "model_path": '../download/trained_weights_final6.h5',
                 "anchors_path": 'model_data/yolo_anchors.txt',
                 "classes_path": 'model_data/voc_classes.txt'
+            },
+            "inception": {
+                "input_size": (608, 608),
+                "model_path": '../download/trained_weights_final6.h5',
+                "anchors_path": 'model_data/yolo_anchors.txt',
+                "classes_path": 'model_data/voc_classes.txt'
             }
         },
         "score": 0.2,
         "iou": 0.5,
-        "model_image_size": (224, 224),
-        #"gpu_num": 1,
         "opt":"xla"
     }
 
@@ -80,33 +80,37 @@ class YOLO(object):
         self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self) -> List[str]:
-        classes_path = os.path.expanduser(self.classes_path)
+        classes_path = os.path.expanduser(self.model_config[self.backbone]['classes_path'])
         with open(classes_path) as f:
             class_names = f.readlines()
         class_names = [c.strip() for c in class_names]
         return class_names
 
     def _get_anchors(self) -> np.ndarray:
-        anchors_path = os.path.expanduser(self.anchors_path)
+        anchors_path = os.path.expanduser(self.model_config[self.backbone]['anchors_path'])
         with open(anchors_path) as f:
             anchors = f.readline()
         anchors = [float(x) for x in anchors.split(',')]
         return np.array(anchors).reshape(-1, 2)
 
     def generate(self):
-        model_path = os.path.expanduser(self.model_path)
+        model_path = os.path.expanduser(self.model_config[self.backbone]['model_path'])
         assert model_path.endswith('.h5'), 'Keras model or weights must be a .h5 file.'
 
         # Load model, or construct model and load weights.
         num_anchors = len(self.anchors)
         num_classes = len(self.class_names)
-        is_tiny_version = True  # default setting
         try:
             self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
-            self.yolo_model = mobilenetv2_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes, self.alpha) \
-                if is_tiny_version else darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
-            self.yolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
+            if self.backbone=="mobilenetv2":
+                self.yolo_model = mobilenetv2_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3,
+                                                        num_classes, self.alpha)
+            elif self.backbone=="darknet53":
+                self.yolo_model = darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
+            elif self.backbone=="inception":
+                self.yolo_model = inception_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
+            self.yolo_model.load_weights(model_path)  # make sure model, anchors and classes match
         else:
             assert self.yolo_model.layers[-1].output_shape[-1] == \
                    num_anchors / len(self.yolo_model.output) * (num_classes + 5), \
@@ -126,8 +130,8 @@ class YOLO(object):
 
         # Generate output tensor targets for filtered bounding boxes.
         self.input_image_shape = tf.placeholder(tf.float32,shape=(2,))
-        if self.gpu_num >= 2:
-            self.yolo_model = tf.keras.utils.multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
+        if gpu_num >= 2:
+            self.yolo_model = tf.keras.utils.multi_gpu_model(self.yolo_model, gpus=gpu_num)
         boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
                                            len(self.class_names), self.input_image_shape,
                                            score_threshold=self.score, iou_threshold=self.iou)
@@ -145,10 +149,10 @@ class YOLO(object):
             outputs={t.name: t for t in [self.boxes, self.scores, self.classes]})
 
     def detect_image(self, image: Image) -> Image:
-        if self.model_image_size != (None, None):
-            assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
-            assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
-            boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
+        if self.model_config[self.backbone]['input_size'] != (None, None):
+            assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
+            assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
+            boxed_image = letterbox_image(image, tuple(reversed(self.model_config[self.backbone]['input_size'])))
         else:
             new_image_size = (image.width - (image.width % 32),
                               image.height - (image.height % 32))
@@ -211,10 +215,10 @@ class YOLO(object):
 
     def detect_image_test(self, image):
 
-        if self.model_image_size != (None, None):
-            assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
-            assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
-            boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
+        if self.model_config[self.backbone]['input_size'] != (None, None):
+            assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
+            assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
+            boxed_image = letterbox_image(image, tuple(reversed(self.model_config[self.backbone]['input_size'])))
         else:
             new_image_size = (image.width - (image.width % 32),
                               image.height - (image.height % 32))

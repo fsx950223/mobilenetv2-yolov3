@@ -5,7 +5,7 @@ Retrain the YOLO model for your own dataset.
 import numpy as np
 import tensorflow as tf
 
-from yolo3.model import preprocess_true_boxes, darknet_yolo_body, mobilenetv2_yolo_body, yolo_loss
+from yolo3.model import preprocess_true_boxes, darknet_yolo_body, mobilenetv2_yolo_body, inception_yolo_body, yolo_loss
 from yolo3.utils import get_random_data
 from typing import Tuple, List
 from multiprocessing import cpu_count
@@ -13,16 +13,36 @@ import os
 from functools import reduce
 gpus="0"
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+gpu_num=len(gpus.split(','))
 tf.enable_eager_execution()
 def _main():
     log_dir = 'logs/000/'
-    classes_path = 'model_data/voc_classes.txt'
-    anchors_path = 'model_data/yolo_anchors.txt'
-    class_names = get_classes(classes_path)
+    backbone= "mobilenetv2"
+    model_config={
+        "mobilenetv2": {
+            "input_size": (224, 224),
+            "model_path": '../download/trained_weights_final6.h5',
+            "anchors_path": 'model_data/yolo_anchors.txt',
+            "classes_path": 'model_data/voc_classes.txt'
+        },
+        "darknet53": {
+            "input_size": (416, 416),
+            "model_path": '../download/trained_weights_final6.h5',
+            "anchors_path": 'model_data/yolo_anchors.txt',
+            "classes_path": 'model_data/voc_classes.txt'
+        },
+        "inception": {
+            "input_size": (608, 608),
+            "model_path": '../download/trained_weights_final6.h5',
+            "anchors_path": 'model_data/yolo_anchors.txt',
+            "classes_path": 'model_data/voc_classes.txt'
+        }
+    }
+    class_names = get_classes(model_config[backbone]['classes_path'])
     num_classes = len(class_names)
-    anchors = get_anchors(anchors_path)
-    input_shape = (416, 416)  # multiple of 32, hw
-    batch_size = 1
+    anchors = get_anchors(model_config[backbone]['anchors_path'])
+    input_shape = model_config[backbone]['input_size']  # multiple of 32, hw
+    batch_size = 4
     train_dataset_path='../pascal/VOCdevkit/train'
     val_dataset_path = '../pascal/VOCdevkit/val'
 
@@ -30,17 +50,20 @@ def _main():
     sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
     val_files = tf.gfile.Glob(os.path.join(val_dataset_path, '*2007*.tfrecords'))
     val_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), val_files))
-    is_tiny_version = False  # default setting
     strategy = tf.distribute.MirroredStrategy()
     batch_size=batch_size*strategy.num_replicas_in_sync
-    if is_tiny_version:
+    if backbone=="mobilenetv2":
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=1.4,
-                                  freeze_body=1, weights_path='model_data/tiny_yolo_weights.h5')
-    else:
+                                  freeze_body=1, weights_path=model_config[backbone]['model_path'])
+    elif backbone=="darknet53":
         model = create_darknet_model(input_shape, anchors, num_classes,
                              freeze_body=1,
-                             weights_path='model_data/darknet53_weights.h5')
-    is_multi_gpu=len(gpus.split(','))>1
+                             weights_path=model_config[backbone]['model_path'])
+    elif backbone=="inception":
+        model = create_inception_model(input_shape, anchors, num_classes,False,
+                             freeze_body=1,
+                             weights_path=model_config[backbone]['model_path'])
+
     logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
                                                     monitor='val_loss', save_weights_only=True, save_best_only=True,
@@ -101,7 +124,7 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
                  load_pretrained: bool = True,
                  freeze_body: int = 2,
                  weights_path: str = 'model_data/yolo_weights.h5') -> tf.keras.models.Model:
-    """create the training model"""
+    tf.keras.backend.clear_session()
     h, w = input_shape
     num_anchors = len(anchors)
     x_data = tf.keras.layers.Input(shape=(None, None, 3))
@@ -150,6 +173,30 @@ def create_mobilenetv2_model(input_shape, anchors, num_classes, load_pretrained:
     model = tf.keras.models.Model([model_body.input, *y_data], model_loss)
     return model
 
+def create_inception_model(input_shape, anchors, num_classes, load_pretrained: bool = True,
+                      freeze_body: int = 2,
+                      weights_path: str = 'model_data/tiny_yolo_weights.h5'):
+    tf.keras.backend.clear_session()
+    h, w = input_shape
+    num_anchors = len(anchors)
+    x_data = tf.keras.layers.Input(shape=(None, None, 3))
+    y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
+                                           num_anchors // 3, num_classes + 5)) for l in range(3)]
+    model_body = inception_yolo_body(x_data,num_anchors // 3, num_classes)
+    print('Create Inception-Res2-YOLOv3 model with {} anchors and {} classes.'.format(num_anchors, num_classes))
+    if load_pretrained:
+        model_body.load_weights(weights_path, by_name=True, skip_mismatch=True)
+        print('Load weights {}.'.format(weights_path))
+    if freeze_body in [1, 2]:
+        num = (780, len(model_body.layers) - 3)[freeze_body - 1]
+        for i in range(num): model_body.layers[i].trainable = False
+        print('Freeze the first {} layers of total {} layers.'.format(num, len(model_body.layers)))
+    model_loss = tf.keras.layers.Lambda(yolo_loss, output_shape=(1,), name='yolo_loss',
+                                        arguments={'anchors': anchors, 'num_classes': num_classes,
+                                                   'ignore_thresh': 0.5})(
+        [*model_body.output, *y_data])
+    model = tf.keras.models.Model([model_body.input, *y_data], model_loss)
+    return model
 
 def data_generator(files: List[str], batch_size: int, input_shape: Tuple[int, int],
                    anchors: List[float],
