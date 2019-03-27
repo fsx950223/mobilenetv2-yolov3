@@ -99,19 +99,19 @@ def mobilenetv2_yolo_body(inputs,num_anchors, num_classes,alpha=1.0):
     return tf.keras.models.Model(inputs, [y1, y2,y3])
 
 
-def inception_yolo_body(inputs,num_anchors, num_classes,alpha=1.0):
-    inception=tf.keras.applications.InceptionResNetV2(alpha=alpha,input_tensor=inputs,include_top=False,weights='imagenet')
+def inception_yolo_body(inputs,num_anchors, num_classes):
+    inception=tf.keras.applications.InceptionResNetV2(input_tensor=inputs,include_top=False,weights='imagenet')
     x, y1 = make_last_layers(inception.output, 512, num_anchors * (num_classes + 5))
     x = compose(
         DarknetConv2D_BN_Leaky(256, (1, 1)),
         tf.keras.layers.UpSampling2D(2))(x)
-    x = tf.keras.layers.Concatenate()([x, inception.get_layer('block_12_expand_relu').output])
+    x = tf.keras.layers.Concatenate()([x, inception.get_layer('activation_160').output])
     x, y2 = make_last_layers(x, 256, num_anchors * (num_classes + 5))
 
     x = compose(
         DarknetConv2D_BN_Leaky(128, (1, 1)),
         tf.keras.layers.UpSampling2D(2))(x)
-    x = tf.keras.layers.Concatenate()([x, inception.get_layer('block_5_expand_relu').output])
+    x = tf.keras.layers.Concatenate()([x, inception.get_layer('activation_73').output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
 
     return tf.keras.models.Model(inputs, [y1, y2,y3])
@@ -404,5 +404,5 @@ def yolo_loss(args, anchors, num_classes: int, ignore_thresh: float = .5, print_
         class_loss = tf.reduce_sum(class_loss) / mf
         loss += xy_loss + wh_loss + confidence_loss + class_loss
         if print_loss:
-            loss = tf.print(loss, [loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask)],message='loss: ')
+            loss = tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask))
     return loss
