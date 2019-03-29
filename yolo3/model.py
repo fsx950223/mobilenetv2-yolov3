@@ -15,7 +15,6 @@ def DarknetConv2D(*args, **kwargs):
     darknet_conv_kwargs.update(kwargs)
     return tf.keras.layers.Conv2D(*args, **darknet_conv_kwargs)
 
-
 def DarknetConv2D_BN_Leaky(*args, **kwargs):
     """Darknet Convolution2D followed by BatchNormalization and LeakyReLU."""
     no_bias_kwargs = {'use_bias': False}
@@ -37,7 +36,6 @@ def resblock_body(x, num_filters, num_blocks):
         x = tf.keras.layers.Add()([x, y])
     return x
 
-
 def darknet_body(x):
     '''Darknent body having 52 Convolution2D layers'''
     x = DarknetConv2D_BN_Leaky(32, (3, 3))(x)
@@ -47,7 +45,6 @@ def darknet_body(x):
     x = resblock_body(x, 512, 8)
     x = resblock_body(x, 1024, 4)
     return x
-
 
 def make_last_layers(x, num_filters, out_filters):
     '''6 Conv2D_BN_Leaky layers followed by a Conv2D_linear layer'''
@@ -98,6 +95,10 @@ def mobilenetv2_yolo_body(inputs,num_anchors, num_classes,alpha=1.0):
 
     return tf.keras.models.Model(inputs, [y1, y2,y3])
 
+def inception_block(filters,kernel):
+    return compose(tf.keras.layers.Conv2D(filters,kernel,use_bias=False,kernel_regularizer=tf.keras.regularizers.l2(5e-4)),
+                   tf.keras.layers.BatchNormalization(),
+                   tf.keras.layers.LeakyReLU(alpha=0.1))
 
 def inception_yolo_body(inputs,num_anchors, num_classes):
     inception=tf.keras.applications.InceptionResNetV2(input_tensor=inputs,include_top=False,weights='imagenet')
@@ -105,13 +106,30 @@ def inception_yolo_body(inputs,num_anchors, num_classes):
     x = compose(
         DarknetConv2D_BN_Leaky(256, (1, 1)),
         tf.keras.layers.UpSampling2D(2))(x)
-    x = tf.keras.layers.Concatenate()([x, inception.get_layer('activation_160').output])
+    x = tf.keras.layers.Concatenate()([x, inception_block(256,(3,3))(inception.get_layer('activation_160').output)])
     x, y2 = make_last_layers(x, 256, num_anchors * (num_classes + 5))
 
     x = compose(
         DarknetConv2D_BN_Leaky(128, (1, 1)),
         tf.keras.layers.UpSampling2D(2))(x)
-    x = tf.keras.layers.Concatenate()([x, inception.get_layer('activation_73').output])
+    x = tf.keras.layers.Concatenate()([x, inception_block(128,(6,6))(inception.get_layer('activation_73').output)])
+    x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
+
+    return tf.keras.models.Model(inputs, [y1, y2,y3])
+
+def densenet_yolo_body(inputs,num_anchors, num_classes):
+    densenet=tf.keras.applications.DenseNet201(input_tensor=inputs,include_top=False,weights='imagenet')
+    x, y1 = make_last_layers(densenet.output, 512, num_anchors * (num_classes + 5))
+    x = compose(
+        DarknetConv2D_BN_Leaky(256, (1, 1)),
+        tf.keras.layers.UpSampling2D(2))(x)
+    x = tf.keras.layers.Concatenate()([x, densenet.get_layer('pool4_relu').output])
+    x, y2 = make_last_layers(x, 256, num_anchors * (num_classes + 5))
+
+    x = compose(
+        DarknetConv2D_BN_Leaky(128, (1, 1)),
+        tf.keras.layers.UpSampling2D(2))(x)
+    x = tf.keras.layers.Concatenate()([x, densenet.get_layer('pool3_relu').output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
 
     return tf.keras.models.Model(inputs, [y1, y2,y3])
@@ -248,7 +266,6 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     #assert (true_boxes[..., 4] < num_classes).all(), 'class id must be less than num_classes'
     num_layers = len(anchors) // 3  # default setting
     anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-
     true_boxes = np.array(true_boxes, dtype='float32')
     input_shape = np.array(input_shape, dtype='int32')
     boxes_xy = (true_boxes[..., 0:2] + true_boxes[..., 2:4]) // 2
@@ -256,7 +273,7 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
     true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
 
-    grid_shapes = [input_shape // {0: 32, 1: 16, 2: 8}[l] for l in range(num_layers)]
+    grid_shapes = [input_shape // [32, 16, 8][l] for l in range(num_layers)]
     y_true = [np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(anchor_mask[l]), 5 + num_classes),
                        dtype='float32') for l in range(num_layers)]
 
@@ -404,5 +421,5 @@ def yolo_loss(args, anchors, num_classes: int, ignore_thresh: float = .5, print_
         class_loss = tf.reduce_sum(class_loss) / mf
         loss += xy_loss + wh_loss + confidence_loss + class_loss
         if print_loss:
-            loss = tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask))
+            tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask))
     return loss
