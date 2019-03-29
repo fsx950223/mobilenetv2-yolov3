@@ -68,7 +68,6 @@ def get_random_data(features, input_shape, jitter = .3,hue=.1, sat=.5,val=.5,con
         xmax = xmax * nw / iw + dx
         ymin = ymin * nh / ih + dy
         ymax = ymax * nh / ih + dy
-
         image, xmin, xmax=tf.cond(tf.less(tf.random.uniform([]), 0.5),lambda: (tf.image.flip_left_right(image),w-xmax,w-xmin),lambda :(image,xmin,xmax))
         if hue>0:
             image = tf.image.random_hue(image, hue)
@@ -84,11 +83,22 @@ def get_random_data(features, input_shape, jitter = .3,hue=.1, sat=.5,val=.5,con
             image=image+tf.cast( tf.random.uniform(shape=[input_shape[1], input_shape[0], 3],
                        minval=0,
                        maxval=noise), tf.float32)
-        bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
-        bbox = tf.transpose(bbox, [1, 0])
     else:
-        bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
-        bbox = tf.transpose(bbox, [1, 0])
+        nh = ih * tf.minimum(w / iw, h / ih)
+        nw = iw * tf.minimum(w / iw, h / ih)
+        dx = (w - nw) / 2
+        dy = (h - nh) / 2
+        image = tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)])
+        new_image = tf.image.pad_to_bounding_box(image, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32),
+                                                 tf.cast(h, tf.int32), tf.cast(w, tf.int32))
+        image_color_padded=tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
+        image = image_color_padded + new_image
+        xmin = xmin * nw / iw + dx
+        xmax = xmax * nw / iw + dx
+        ymin = ymin * nh / ih + dy
+        ymax = ymax * nh / ih + dy
+    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+    bbox = tf.transpose(bbox, [1, 0])
 
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
     bbox = tf.clip_by_value(bbox, clip_value_min=0, clip_value_max=input_shape[0] - 1)
