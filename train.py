@@ -274,11 +274,11 @@ def data_generator(files: List[str], batch_size: int, input_shape: Tuple[int, in
         if train:
             dataset = dataset.interleave(
                 lambda x: tf.data.TFRecordDataset(x).map(parse, num_parallel_calls=cpu_count()),
-                cycle_length=len(files),num_parallel_calls=cpu_count()).shuffle(300).prefetch(batch_size).repeat().batch(batch_size)
+                cycle_length=len(files),num_parallel_calls=min(cpu_count(),len(files))).shuffle(300).prefetch(batch_size).repeat().batch(batch_size)
         else:
             dataset = dataset.interleave(
                 lambda x: tf.data.TFRecordDataset(x).map(parse, num_parallel_calls=cpu_count()),
-                cycle_length=len(files),num_parallel_calls=cpu_count()).repeat().batch(batch_size).prefetch(
+                cycle_length=len(files),num_parallel_calls=min(cpu_count(),len(files))).repeat().batch(batch_size).prefetch(
                 batch_size)
         return dataset
 
