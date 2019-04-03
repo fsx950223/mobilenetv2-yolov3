@@ -3,11 +3,20 @@ import argparse
 from yolo import YOLO, detect_video
 from PIL import Image
 from timeit import default_timer as timer
-
+import tensorflow as tf
 def detect_img(yolo):
     while True:
         img = input('Input image filename:')
-        r_image = yolo.detect_image(img)
+        if tf.executing_eagerly():
+            content = tf.io.gfile.GFile(img, 'rb').read()
+            image = tf.image.decode_image(content)
+            image = tf.image.convert_image_dtype(image, tf.float32)
+        else:
+            try:
+                image = Image.open(img)
+            except:
+                print('Open Error! Try again!')
+        r_image = yolo.detect_image(image)
         r_image.show()
     yolo.close_session()
 

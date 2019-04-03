@@ -49,7 +49,7 @@ class YOLO(object):
                 "classes_path": 'model_data/voc_classes.txt'
             }
         },
-        "score": 0.2,
+        "score": 0.1,
         "iou": 0.5,
         "opt":"xla"
     }
@@ -169,11 +169,8 @@ class YOLO(object):
             },
             outputs={t.name: t for t in [self.boxes, self.scores, self.classes]})
 
-    def detect_image(self, image_path: str) -> Image:
+    def detect_image(self, image) -> Image:
         if tf.executing_eagerly():
-            content = tf.io.gfile.GFile(image_path, 'rb').read()
-            image = tf.image.decode_image(content)
-            image = tf.image.convert_image_dtype(image, tf.float32)
             if self.model_config[self.backbone]['input_size'] != (None, None):
                 assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
                 assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
@@ -191,32 +188,27 @@ class YOLO(object):
             end = timer()
             image = Image.fromarray((np.array(image) * 255).astype('uint8'), 'RGB')
         else:
-            try:
-                image = Image.open(image_path)
-            except:
-                print('Open Error! Try again!')
-            else:
-                size=self.model_config[self.backbone]['input_size']
-                iw, ih = image.size
-                w, h = size
-                scale = min(w / iw, h / ih)
-                nw = int(iw * scale)
-                nh = int(ih * scale)
+            size=self.model_config[self.backbone]['input_size']
+            iw, ih = image.size
+            w, h = size
+            scale = min(w / iw, h / ih)
+            nw = int(iw * scale)
+            nh = int(ih * scale)
 
-                resized_image = image.resize((nw, nh), Image.BILINEAR)
-                new_image = Image.new('RGB', size, (128, 128, 128))
-                new_image.paste(resized_image, ((w - nw) // 2, (h - nh) // 2))
-                image_data=np.array(new_image,dtype='float32')
-                image_data/=255.
-                image_data=np.expand_dims(image_data,0)
-                start = timer()
-                out_boxes, out_scores, out_classes = self.sess.run(
-                    [self.boxes, self.scores, self.classes],
-                    feed_dict={
-                        "predict_image:0": image_data,
-                        "image_size:0":tuple(reversed(resized_image.size))
-                    })
-                end = timer()
+            resized_image = image.resize((nw, nh), Image.BILINEAR)
+            new_image = Image.new('RGB', size, (128, 128, 128))
+            new_image.paste(resized_image, ((w - nw) // 2, (h - nh) // 2))
+            image_data=np.array(new_image,dtype='float32')
+            image_data/=255.
+            image_data=np.expand_dims(image_data,0)
+            start = timer()
+            out_boxes, out_scores, out_classes = self.sess.run(
+                [self.boxes, self.scores, self.classes],
+                feed_dict={
+                    "predict_image:0": image_data,
+                    "image_size:0":tuple(reversed(resized_image.size))
+                })
+            end = timer()
 
         print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
 
@@ -306,6 +298,8 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
     while True:
         return_value, frame = vid.read()
         image = Image.fromarray(frame)
+        if tf.executing_eagerly():
+            image=np.array(image) / 255.
         image = yolo.detect_image(image)
         result = np.asarray(image)
         curr_time = timer()

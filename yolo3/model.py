@@ -215,7 +215,7 @@ def yolo_correct_boxes(box_xy: tf.Tensor, box_wh: tf.Tensor, input_shape: tf.Ten
     box_hw = box_wh[..., ::-1]
     input_shape = tf.cast(input_shape, box_yx.dtype)
     image_shape = tf.cast(image_shape, box_yx.dtype)
-    offset = (input_shape - image_shape) / 2. / image_shape
+    offset = (input_shape - image_shape) / 2. / input_shape
     scale = input_shape / image_shape
     box_yx = (box_yx - offset) * scale
     box_hw *= scale
