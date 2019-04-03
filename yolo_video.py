@@ -7,14 +7,8 @@ from timeit import default_timer as timer
 def detect_img(yolo):
     while True:
         img = input('Input image filename:')
-        try:
-            image = Image.open(img)
-        except:
-            print('Open Error! Try again!')
-            continue
-        else:
-            r_image = yolo.detect_image(image)
-            r_image.show()
+        r_image = yolo.detect_image(img)
+        r_image.show()
     yolo.close_session()
 
 def test_img(yolo):

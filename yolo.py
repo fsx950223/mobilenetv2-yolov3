@@ -9,13 +9,14 @@ from timeit import default_timer as timer
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
-from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,inception_yolo_body
+from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,inception_yolo_body,densenet_yolo_body
 from yolo3.utils import letterbox_image
 import os
 
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
-
+if hasattr(tf,'enable_eager_execution'):
+    tf.enable_eager_execution()
 gpus=""
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num=len(gpus.split(','))
@@ -25,7 +26,7 @@ class YOLO(object):
         "model_config":{
             "mobilenetv2":{
                 "input_size":(224,224),
-                "model_path": '../download/trained_weights_final6.h5',
+                "model_path": '../download/mobilenetv2_trained_weights_final2.h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -38,6 +39,12 @@ class YOLO(object):
             "inception": {
                 "input_size": (608, 608),
                 "model_path": '../download/trained_weights_final6.h5',
+                "anchors_path": 'model_data/yolo_anchors.txt',
+                "classes_path": 'model_data/voc_classes.txt'
+            },
+            "densenet": {
+                "input_size": (416, 416),
+                "model_path": '../download/densenet_trained_weights_stage_1.h5',
                 "anchors_path": 'model_data/yolo_anchors.txt',
                 "classes_path": 'model_data/voc_classes.txt'
             }
@@ -77,7 +84,10 @@ class YOLO(object):
         else:
             sess = tf.get_session()
         self.sess = sess
-        self.boxes, self.scores, self.classes = self.generate()
+        if tf.executing_eagerly():
+            self.generate()
+        else:
+            self.boxes, self.scores, self.classes = self.generate()
 
     def _get_class(self) -> List[str]:
         classes_path = os.path.expanduser(self.model_config[self.backbone]['classes_path'])
@@ -104,10 +114,21 @@ class YOLO(object):
             self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
             if self.backbone=="mobilenetv2":
-                self.yolo_model = mobilenetv2_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3,
-                                                        num_classes, self.alpha)
+                if tf.executing_eagerly():
+                    self.yolo_model = mobilenetv2_yolo_body(
+                        tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3)),
+                        num_anchors // 3,
+                        num_classes, self.alpha)
+                else:
+                    self.yolo_model = mobilenetv2_yolo_body(
+                        tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3), name='predict_image'),
+                        num_anchors // 3,
+                        num_classes, self.alpha)
             elif self.backbone=="darknet53":
                 self.yolo_model = darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
+            elif self.backbone == "densenet":
+                self.yolo_model = densenet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3,
+                                                    num_classes)
             elif self.backbone=="inception":
                 self.yolo_model = inception_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             self.yolo_model.load_weights(model_path)  # make sure model, anchors and classes match
@@ -129,54 +150,79 @@ class YOLO(object):
         np.random.seed(None)  # Reset seed to default.
 
         # Generate output tensor targets for filtered bounding boxes.
-        self.input_image_shape = tf.placeholder(tf.float32,shape=(2,))
         if gpu_num >= 2:
             self.yolo_model = tf.keras.utils.multi_gpu_model(self.yolo_model, gpus=gpu_num)
-        boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
-                                           len(self.class_names), self.input_image_shape,
-                                           score_threshold=self.score, iou_threshold=self.iou)
-        return boxes, scores, classes
+        if tf.executing_eagerly() is not True:
+            self.input_image_shape = tf.placeholder(tf.float32, shape=(2,),name="image_size")
+            boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
+                                               len(self.class_names), self.input_image_shape,
+                                               score_threshold=self.score, iou_threshold=self.iou)
+            return boxes, scores, classes
 
     def export_serving_model(self, path: str) -> None:
         tf.saved_model.simple_save(
             self.sess,
             path,
             inputs={
-                self.yolo_model.input.name: self.yolo_model.input,
-                self.input_image_shape.name: self.input_image_shape,
-                tf.keras.backend.learning_phase().name: tf.constant(0)
+                'predict_image:0': self.yolo_model.input,
+                'image_size:0': self.input_image_shape
             },
             outputs={t.name: t for t in [self.boxes, self.scores, self.classes]})
 
-    def detect_image(self, image: Image) -> Image:
-        if self.model_config[self.backbone]['input_size'] != (None, None):
-            assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
-            assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
-            boxed_image = letterbox_image(image, tuple(reversed(self.model_config[self.backbone]['input_size'])))
+    def detect_image(self, image_path: str) -> Image:
+        if tf.executing_eagerly():
+            content = tf.io.gfile.GFile(image_path, 'rb').read()
+            image = tf.image.decode_image(content)
+            image = tf.image.convert_image_dtype(image, tf.float32)
+            if self.model_config[self.backbone]['input_size'] != (None, None):
+                assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
+                assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
+                boxed_image, image_shape = letterbox_image(image, tuple(
+                    reversed(self.model_config[self.backbone]['input_size'])))
+            else:
+                height, width, _ = image.shape
+                new_image_size = (width - (width % 32), height - (height % 32))
+                boxed_image, image_shape = letterbox_image(image, new_image_size)
+            image_data = np.expand_dims(boxed_image, 0)
+            start = timer()
+            output=self.yolo_model.predict(image_data)
+            out_boxes, out_scores, out_classes=yolo_eval(output,self.anchors,len(self.class_names),image_shape[0:2],
+                    score_threshold=self.score, iou_threshold=self.iou)
+            end = timer()
+            image = Image.fromarray((np.array(image) * 255).astype('uint8'), 'RGB')
         else:
-            new_image_size = (image.width - (image.width % 32),
-                              image.height - (image.height % 32))
-            boxed_image = letterbox_image(image, new_image_size)
-        image_data = np.array(boxed_image, dtype='float32')
+            try:
+                image = Image.open(image_path)
+            except:
+                print('Open Error! Try again!')
+            else:
+                size=self.model_config[self.backbone]['input_size']
+                iw, ih = image.size
+                w, h = size
+                scale = min(w / iw, h / ih)
+                nw = int(iw * scale)
+                nh = int(ih * scale)
 
-        print(image_data.shape)
-        image_data /= 255.
-        image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
-
-        start = timer()
-        out_boxes, out_scores, out_classes = self.sess.run(
-            [self.boxes, self.scores, self.classes],
-            feed_dict={
-                self.yolo_model.input: image_data,
-                self.input_image_shape: [image.size[1], image.size[0]]
-            })
-        end = timer()
+                resized_image = image.resize((nw, nh), Image.BILINEAR)
+                new_image = Image.new('RGB', size, (128, 128, 128))
+                new_image.paste(resized_image, ((w - nw) // 2, (h - nh) // 2))
+                image_data=np.array(new_image,dtype='float32')
+                image_data/=255.
+                image_data=np.expand_dims(image_data,0)
+                start = timer()
+                out_boxes, out_scores, out_classes = self.sess.run(
+                    [self.boxes, self.scores, self.classes],
+                    feed_dict={
+                        "predict_image:0": image_data,
+                        "image_size:0":tuple(reversed(resized_image.size))
+                    })
+                end = timer()
 
         print('Found {} boxes for {}'.format(len(out_boxes), 'img'))
 
         font = ImageFont.truetype(font='font/FiraMono-Medium.otf',
                                   size=np.floor(3e-2 * image.size[1] + 0.5).astype('int32'))
-        thickness = (image.size[0] + image.size[1]) // 300
+        thickness = (image.size[1] + image.size[0]) // 300
 
         for i, c in reversed(list(enumerate(out_classes))):
             predicted_class = self.class_names[c]
@@ -187,7 +233,7 @@ class YOLO(object):
             draw = ImageDraw.Draw(image)
             label_size = draw.textsize(label, font)
 
-            top, left, bottom, right = box
+            top, left, bottom, right =box*(tuple(reversed(image.size))*2)
             top = max(0, np.floor(top + 0.5).astype('int32'))
             left = max(0, np.floor(left + 0.5).astype('int32'))
             bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
@@ -230,7 +276,8 @@ class YOLO(object):
         out_boxes, out_scores, out_classes = self.sess.run(
             [self.boxes, self.scores, self.classes],
             feed_dict={
-                self.yolo_model.input: image_data
+                self.yolo_model.input: image_data,
+                self.input_image_shape: [image.size[1], image.size[0]]
             })
 
         return out_boxes, out_scores, reversed(list(enumerate(out_classes)))

@@ -1,8 +1,7 @@
 """Miscellaneous utility functions."""
 
 from functools import reduce
-from PIL import Image
-import numpy as np
+import cv2
 import tensorflow as tf
 
 def compose(*funcs):
@@ -19,18 +18,29 @@ def compose(*funcs):
 
 def letterbox_image(image, size):
     '''resize image with unchanged aspect ratio using padding'''
-    iw, ih = image.size
-    w, h = size
-    scale = min(w / iw, h / ih)
-    nw = int(iw * scale)
-    nh = int(ih * scale)
+    iw, ih = tf.cast(tf.shape(image)[1], tf.int32), tf.cast(tf.shape(image)[0], tf.int32)
+    w, h = tf.cast(size[1], tf.int32), tf.cast(size[0], tf.int32)
+    nh = tf.cast(tf.cast(ih,tf.float64) * tf.minimum(w / iw, h / ih),tf.int32)
+    nw = tf.cast(tf.cast(iw,tf.float64) * tf.minimum(w / iw, h / ih),tf.int32)
+    dx = (w - nw) // 2
+    dy = (h - nh) // 2
+    image = tf.image.resize(image, [nh, nw])
+    new_image = tf.image.pad_to_bounding_box(image, dy, dx, h, w)
+    image_color_padded = tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
+    return image_color_padded + new_image,tf.shape(image)
 
-    image = image.resize((nw, nh), Image.BICUBIC)
-    new_image = Image.new('RGB', size, (128, 128, 128))
-    new_image.paste(image, ((w - nw) // 2, (h - nh) // 2))
-    return new_image
+def random_gamma(image,min,max):
+    val=tf.random.uniform([],min,max)
+    return tf.image.adjust_gamma(image,val)
 
-def get_random_data(features, input_shape, jitter = .3,hue=.1, sat=.5,val=.5,cont=.2,noise=0.2, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def random_blur(image):
+    gaussian_blur = lambda image: cv2.GaussianBlur(image.numpy(), (5, 5), 0)
+    h, w = image.shape.as_list()[:2]
+    image = tf.py_function(gaussian_blur, [image], tf.float32)
+    image.set_shape([h, w, 3])
+    return image
+
+def get_random_data(features, input_shape, jitter = .3,min_gamma=0.6,max_gamma=4,blur=True,hue=.1, sat=.2,val=0.,cont=.3,noise=0.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
     image = tf.image.decode_jpeg(features['image/encoded'], channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
@@ -75,6 +85,8 @@ def get_random_data(features, input_shape, jitter = .3,hue=.1, sat=.5,val=.5,con
             image = tf.image.random_saturation(image, 1-sat, 1+sat)
         if val>0:
             image = tf.image.random_brightness(image, val)
+        if min_gamma<max_gamma:
+            image = random_gamma(image, min_gamma,max_gamma)
         if cont>1:
             image=tf.image.random_contrast(image,1-cont,1+cont)
         if min_jpeg_quality<max_jpeg_quality:
@@ -83,6 +95,8 @@ def get_random_data(features, input_shape, jitter = .3,hue=.1, sat=.5,val=.5,con
             image=image+tf.cast( tf.random.uniform(shape=[input_shape[1], input_shape[0], 3],
                        minval=0,
                        maxval=noise), tf.float32)
+        if blur:
+            image=random_blur(image)
     else:
         nh = ih * tf.minimum(w / iw, h / ih)
         nw = iw * tf.minimum(w / iw, h / ih)
@@ -91,8 +105,8 @@ def get_random_data(features, input_shape, jitter = .3,hue=.1, sat=.5,val=.5,con
         image = tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)])
         new_image = tf.image.pad_to_bounding_box(image, tf.cast(dy, tf.int32), tf.cast(dx, tf.int32),
                                                  tf.cast(h, tf.int32), tf.cast(w, tf.int32))
-        image_color_padded=tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
-        image = image_color_padded + new_image
+        image_color_padded = tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
+        image=image_color_padded + new_image
         xmin = xmin * nw / iw + dx
         xmax = xmax * nw / iw + dx
         ymin = ymin * nh / ih + dy
