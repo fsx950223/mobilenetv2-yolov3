@@ -5,7 +5,7 @@ Class definition of YOLO_v3 style detection model on image and video
 
 import colorsys
 from timeit import default_timer as timer
-
+from enum import Enum,unique
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
@@ -20,13 +20,20 @@ if hasattr(tf,'enable_eager_execution'):
 gpus=""
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num=len(gpus.split(','))
+@unique
+class OPT(Enum):
+    NORMAL = 0
+    XLA = 1
+    DEBUG = 2
+    MKL = 3
+
 class YOLO(object):
     _defaults = {
         "backbone":"mobilenetv2",
         "model_config":{
             "mobilenetv2":{
                 "input_size":(224,224),
-                "model_path": '../download/mobilenetv2_trained_weights_final2.h5',
+                "model_path": '../download/mobilenetv2_trained_weights_stage_12.h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -51,7 +58,7 @@ class YOLO(object):
         },
         "score": 0.1,
         "iou": 0.5,
-        "opt":"xla"
+        "opt":OPT.XLA
     }
 
     @classmethod
@@ -69,16 +76,16 @@ class YOLO(object):
         self.alpha=1.4
         config = tf.ConfigProto()
         tf.keras.backend.set_learning_phase(0)
-        if self.opt=="xla":
+        if self.opt==OPT.XLA:
             config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
             sess = tf.Session(config=config)
             tf.keras.backend.set_session(sess)
-        elif self.opt=="mkl":
+        elif self.opt==OPT.MKL:
             config.intra_op_parallelism_threads = 4
             config.inter_op_parallelism_threads = 4
             sess = tf.Session(config=config)
             tf.keras.backend.set_session(sess)
-        elif self.opt=="debug":
+        elif self.opt==OPT.DEBUG:
             sess=tf_debug.TensorBoardDebugWrapperSession(tf.get_session(), "fangsixie-Inspiron-7572:6064")
             tf.keras.backend.set_session(sess)
         else:
@@ -114,16 +121,10 @@ class YOLO(object):
             self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
             if self.backbone=="mobilenetv2":
-                if tf.executing_eagerly():
-                    self.yolo_model = mobilenetv2_yolo_body(
-                        tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3)),
-                        num_anchors // 3,
-                        num_classes, self.alpha)
-                else:
-                    self.yolo_model = mobilenetv2_yolo_body(
-                        tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3), name='predict_image'),
-                        num_anchors // 3,
-                        num_classes, self.alpha)
+                self.yolo_model = mobilenetv2_yolo_body(
+                    tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3), name='predict_image'),
+                    num_anchors // 3,
+                    num_classes, self.alpha)
             elif self.backbone=="darknet53":
                 self.yolo_model = darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             elif self.backbone == "densenet":

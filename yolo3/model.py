@@ -120,21 +120,21 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
                                                     weights='imagenet')
     x=mobilenetv2.output
     y1 = MobilenetConv2D_BN_Relu((1,1),alpha, 1280)(x)
-    y1 = tf.keras.layers.Conv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y1)
+    y1 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y1)
     x = compose(
         MobilenetConv2D_BN_Relu((1,1),alpha, 640),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
         [x, MobilenetConv2D_BN_Relu((1,1),alpha, 640)(mobilenetv2.get_layer('block_12_project_BN').output)])
     y2 = MobilenetConv2D_BN_Relu((1,1),alpha, 640)(x)
-    y2 = tf.keras.layers.Conv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
+    y2 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
     x = compose(
         MobilenetConv2D_BN_Relu((1,1),alpha, 320),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
         [x, MobilenetConv2D_BN_Relu((1,1),alpha, 320)(mobilenetv2.get_layer('block_5_project_BN').output)])
     y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 320)(x)
-    y3 = tf.keras.layers.Conv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
+    y3 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 def inception_block(filters, kernel):

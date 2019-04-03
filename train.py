@@ -92,22 +92,21 @@ def _main():
     checkpoint = tf.keras.callbacks.ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
                                                     monitor='val_loss', save_weights_only=True, save_best_only=True,
                                                     period=3)
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=6, verbose=1)
-    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=15, verbose=1)
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
 
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
-
     if True:
         #with strategy.scope():
         model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
                           loss={'yolo_loss': lambda y_true, y_pred: y_pred})
         model.fit(data_generator(files, batch_size, input_shape, anchors, num_classes),
                   epochs=10, initial_epoch=0,
-                  steps_per_epoch=max(1, train_sum // batch_size),
+                  steps_per_epoch=max(1, 1 // batch_size),
                   callbacks=[logging, checkpoint],
                   validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes, train=False),
-                  validation_steps=max(1, val_sum // batch_size))
+                  validation_steps=max(1, 1 // batch_size))
         model.save_weights(log_dir + backbone + '_trained_weights_stage_1.h5')
 
     # Unfreeze and continue training, to fine-tune.
