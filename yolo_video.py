@@ -8,7 +8,7 @@ def detect_img(yolo):
     while True:
         img = input('Input image filename:')
         if tf.executing_eagerly():
-            content = tf.io.gfile.GFile(img, 'rb').read()
+            content = tf.io.read_file(img,'rb')
             image = tf.image.decode_image(content)
             image = tf.image.convert_image_dtype(image, tf.float32)
         else:

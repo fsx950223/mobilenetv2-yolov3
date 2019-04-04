@@ -5,13 +5,12 @@ Retrain the YOLO model for your own dataset.
 import numpy as np
 import tensorflow as tf
 import datetime
-from yolo3.model import preprocess_true_boxes, darknet_yolo_body, mobilenetv2_yolo_body, inception_yolo_body,densenet_yolo_body, yolo_loss
-from yolo3.utils import get_random_data
+from yolo3.model import darknet_yolo_body, mobilenetv2_yolo_body, inception_yolo_body,densenet_yolo_body, yolo_loss
 from typing import Tuple, List
-from multiprocessing import cpu_count
+from yolo3.data import auto_dataset
 import os
-from functools import reduce
 from tensorflow.python import debug as tf_debug
+
 gpus = "0"
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num = len(gpus.split(','))
@@ -23,11 +22,13 @@ def _main():
     backbone = "mobilenetv2"
     log_dir = 'logs/'+backbone+str(datetime.date.today())
     batch_size = 4
-    train_dataset_path = '../pascal/VOCdevkit/train'
-    val_dataset_path = '../pascal/VOCdevkit/val'
+    train_dataset_path = './'
+    val_dataset_path = './'
+    train_dataset_glob='cci_1_VOC2007_1000.txt'
+    val_dataset_glob='cci_1_VOC2007_1000.txt'
     model_config = {
         "mobilenetv2": {
-            "input_size": (224, 224),
+            "input_size": (320, 320),
             "model_path": '../download/trained_weights_final6.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
             "classes_path": 'model_data/voc_classes.txt'
@@ -57,12 +58,9 @@ def _main():
     anchors = get_anchors(model_config[backbone]['anchors_path'])
     input_shape = model_config[backbone]['input_size']  # multiple of 32, hw
 
+    train_dataset,train_num=auto_dataset(train_dataset_path, train_dataset_glob, batch_size, input_shape, anchors, num_classes)
+    val_dataset,val_num=auto_dataset(val_dataset_path, val_dataset_glob, batch_size, input_shape, anchors, num_classes,train=False)
 
-    files = tf.io.gfile.glob(os.path.join(train_dataset_path, '*2007*.tfrecords'))
-    train_sum = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-    val_files = tf.io.gfile.glob(os.path.join(val_dataset_path, '*2007*.tfrecords'))
-    val_sum = reduce(lambda x, y: x + y,
-                     map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), val_files))
     strategy = tf.distribute.MirroredStrategy()
     batch_size = batch_size * strategy.num_replicas_in_sync
     #with strategy.scope():
@@ -101,12 +99,12 @@ def _main():
         #with strategy.scope():
         model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
                           loss={'yolo_loss': lambda y_true, y_pred: y_pred})
-        model.fit(data_generator(files, batch_size, input_shape, anchors, num_classes),
+        model.fit(train_dataset,
                   epochs=10, initial_epoch=0,
-                  steps_per_epoch=max(1, 1 // batch_size),
+                  steps_per_epoch=max(1, train_num // batch_size),
                   callbacks=[logging, checkpoint],
-                  validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes, train=False),
-                  validation_steps=max(1, 1 // batch_size))
+                  validation_data=val_dataset,
+                  validation_steps=max(1, val_num // batch_size))
         model.save_weights(log_dir + backbone + '_trained_weights_stage_1.h5')
 
     # Unfreeze and continue training, to fine-tune.
@@ -118,11 +116,11 @@ def _main():
         model.compile(optimizer=tf.keras.optimizers.Adam(1e-4),
                           loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
-        model.fit(data_generator(files, batch_size, input_shape, anchors, num_classes),
-                  epochs=20, initial_epoch=10, steps_per_epoch=max(1, train_sum // batch_size),
+        model.fit(train_dataset,
+                  epochs=20, initial_epoch=10, steps_per_epoch=max(1, train_num // batch_size),
                   callbacks=[logging,checkpoint, reduce_lr, early_stopping],
-                  validation_data=data_generator(val_files, batch_size, input_shape, anchors, num_classes, train=False),
-                  validation_steps=max(1, val_sum // batch_size))
+                  validation_data=val_dataset,
+                  validation_steps=max(1, val_num // batch_size))
         model.save_weights(log_dir + backbone + '_trained_weights_final.h5')
 
     # Further training if needed.
@@ -246,52 +244,6 @@ def create_densenet_model(input_shape, anchors, num_classes, load_pretrained: bo
         [*model_body.output, *y_data])
     model = tf.keras.models.Model([model_body.input, *y_data], model_loss)
     return model
-
-def draw_image(dataset):
-    file_writer_cm = tf.summary.create_file_writer('logs/cm')
-    iter=dataset.__iter__()
-    images,_,_,_=iter.get_next()[0]
-    images = np.reshape(images[0:25], (-1, 28, 28, 1))
-    with file_writer_cm.as_default():
-        tf.summary.image('input_image', images,max_outputs=25, step=0)
-
-def data_generator(files: List[str], batch_size: int, input_shape: Tuple[int, int],
-                   anchors: List[float],
-                   num_classes: int,
-                   train: bool = True):
-    with tf.device('/cpu:0'):
-        dataset = tf.data.Dataset.from_tensor_slices(files)
-        """data generator for fit_generator"""
-
-        def parse(example_proto):
-            feature_description = {
-                'image/encoded': tf.io.FixedLenFeature([], tf.string),
-                'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
-                'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
-                'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
-                'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
-                'image/object/bbox/label': tf.io.VarLenFeature(tf.int64)
-            }
-            features = tf.io.parse_single_example(example_proto, feature_description)
-            image, bbox = get_random_data(features, input_shape, train=train)
-
-            y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
-                                        [tf.float32, tf.float32, tf.float32])
-            return (image, y0, y1, y2), 0
-
-        if train:
-            train_sum = reduce(lambda x, y: x + y,
-                               map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-            dataset = dataset.interleave(
-                lambda x: tf.data.TFRecordDataset(x).map(parse, num_parallel_calls=cpu_count()),
-                cycle_length=len(files),num_parallel_calls=min(cpu_count(),len(files))).shuffle(300).repeat().prefetch(batch_size).batch(batch_size)
-        else:
-            dataset = dataset.interleave(
-                lambda x: tf.data.TFRecordDataset(x).map(parse, num_parallel_calls=cpu_count()),
-                cycle_length=len(files),num_parallel_calls=min(cpu_count(),len(files))).repeat().prefetch(batch_size).batch(batch_size)
-        #draw_image(dataset)
-        return dataset
-
 
 if __name__ == '__main__':
     _main()

@@ -40,17 +40,17 @@ def random_blur(image):
     image.set_shape([h, w, 3])
     return image
 
-def get_random_data(features, input_shape, jitter = .3,min_gamma=0.6,max_gamma=4,blur=True,hue=.1, sat=.2,val=0.,cont=.3,noise=0.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape, jitter = .3,min_gamma=0.6,max_gamma=4,blur=True,hue=.1, sat=.2,val=0.,cont=.3,noise=0.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
-    image = tf.image.decode_jpeg(features['image/encoded'], channels=3)
+    image = tf.image.decode_jpeg(image, channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
     iw, ih = tf.cast(tf.shape(image)[1], tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
     w,h = tf.cast(input_shape[1], tf.float32), tf.cast(input_shape[0], tf.float32)
-    xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
-    xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
-    ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
-    ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
-    label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
+    xmax = tf.expand_dims(xmax, 0)
+    xmin = tf.expand_dims(xmin, 0)
+    ymax = tf.expand_dims(ymax, 0)
+    ymin = tf.expand_dims(ymin, 0)
+    label = tf.expand_dims(label, 0)
     if train:
         new_ar = w / h * tf.random.uniform([], 1 - jitter, 1 + jitter) / tf.random.uniform([], 1 - jitter, 1 + jitter)
         scale = tf.random.uniform([], 0.25, 2)
