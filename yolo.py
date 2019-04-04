@@ -5,51 +5,45 @@ Class definition of YOLO_v3 style detection model on image and video
 
 import colorsys
 from timeit import default_timer as timer
-from enum import Enum,unique
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
 from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,inception_yolo_body,densenet_yolo_body
 from yolo3.utils import letterbox_image
+from yolo3.enum import OPT,BACKBONE
 import os
-
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
+
 if hasattr(tf,'enable_eager_execution'):
     tf.enable_eager_execution()
 gpus=""
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num=len(gpus.split(','))
-@unique
-class OPT(Enum):
-    NORMAL = 0
-    XLA = 1
-    DEBUG = 2
-    MKL = 3
 
 class YOLO(object):
     _defaults = {
-        "backbone":"mobilenetv2",
+        "backbone":BACKBONE.MOBILENETV2,
         "model_config":{
-            "mobilenetv2":{
+            BACKBONE.MOBILENETV2:{
                 "input_size":(224,224),
                 "model_path": '../download/mobilenetv2_trained_weights_stage_12.h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
-            "darknet53":{
+            BACKBONE.DARKNET53:{
                 "input_size":(416,416),
                 "model_path": '../download/trained_weights_final6.h5',
                 "anchors_path": 'model_data/yolo_anchors.txt',
                 "classes_path": 'model_data/voc_classes.txt'
             },
-            "inception": {
+            BACKBONE.INCEPTION_RESNET2: {
                 "input_size": (608, 608),
                 "model_path": '../download/trained_weights_final6.h5',
                 "anchors_path": 'model_data/yolo_anchors.txt',
                 "classes_path": 'model_data/voc_classes.txt'
             },
-            "densenet": {
+            BACKBONE.DENSENET: {
                 "input_size": (416, 416),
                 "model_path": '../download/densenet_trained_weights_stage_1.h5',
                 "anchors_path": 'model_data/yolo_anchors.txt',
@@ -120,17 +114,17 @@ class YOLO(object):
         try:
             self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
-            if self.backbone=="mobilenetv2":
+            if self.backbone==BACKBONE.MOBILENETV2:
                 self.yolo_model = mobilenetv2_yolo_body(
                     tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3), name='predict_image'),
                     num_anchors // 3,
                     num_classes, self.alpha)
-            elif self.backbone=="darknet53":
+            elif self.backbone==BACKBONE.DARKNET53:
                 self.yolo_model = darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
-            elif self.backbone == "densenet":
+            elif self.backbone == BACKBONE.DENSENET:
                 self.yolo_model = densenet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3,
                                                     num_classes)
-            elif self.backbone=="inception":
+            elif self.backbone==BACKBONE.INCEPTION_RESNET2:
                 self.yolo_model = inception_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             self.yolo_model.load_weights(model_path)  # make sure model, anchors and classes match
         else:

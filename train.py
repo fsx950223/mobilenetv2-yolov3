@@ -8,6 +8,7 @@ import datetime
 from yolo3.model import darknet_yolo_body, mobilenetv2_yolo_body, inception_yolo_body,densenet_yolo_body, yolo_loss
 from typing import Tuple, List
 from yolo3.data import auto_dataset
+from yolo3.enum import OPT,BACKBONE
 import os
 from tensorflow.python import debug as tf_debug
 
@@ -19,33 +20,33 @@ if hasattr(tf,'enable_eager_execution'):
 
 def _main():
     opt=None
-    backbone = "mobilenetv2"
-    log_dir = 'logs/'+backbone+str(datetime.date.today())
+    backbone = BACKBONE.MOBILENETV2
+    log_dir = 'logs/'+str(backbone).split('.')[1].lower()+str(datetime.date.today())
     batch_size = 4
-    train_dataset_path = './'
-    val_dataset_path = './'
-    train_dataset_glob='cci_1_VOC2007_1000.txt'
-    val_dataset_glob='cci_1_VOC2007_1000.txt'
+    train_dataset_path = '../pascal/VOCdevkit/train'
+    val_dataset_path = '../pascal/VOCdevkit/val'
+    train_dataset_glob='*2007*.tfrecords'
+    val_dataset_glob='*2007*.tfrecords'
     model_config = {
-        "mobilenetv2": {
+        BACKBONE.MOBILENETV2: {
             "input_size": (320, 320),
             "model_path": '../download/trained_weights_final6.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
             "classes_path": 'model_data/voc_classes.txt'
         },
-        "darknet53": {
+        BACKBONE.DARKNET53: {
             "input_size": (416, 416),
             "model_path": '../download/trained_weights_final6.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
             "classes_path": 'model_data/voc_classes.txt'
         },
-        "inception": {
+        BACKBONE.INCEPTION_RESNET2: {
             "input_size": (608, 608),
             "model_path": '../download/trained_weights_final6.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
             "classes_path": 'model_data/voc_classes.txt'
         },
-        "densenet": {
+        BACKBONE.DENSENET: {
             "input_size": (416, 416),
             "model_path": '../download/trained_weights_final6.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
@@ -64,24 +65,24 @@ def _main():
     strategy = tf.distribute.MirroredStrategy()
     batch_size = batch_size * strategy.num_replicas_in_sync
     #with strategy.scope():
-    if backbone == "mobilenetv2":
+    if backbone == BACKBONE.MOBILENETV2:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=1.4,
                                          freeze_body=1, weights_path=model_config[backbone]['model_path'])
-    elif backbone == "darknet53":
+    elif backbone == BACKBONE.DARKNET53:
         model = create_darknet_model(input_shape, anchors, num_classes,
                                      freeze_body=1,
                                      weights_path=model_config[backbone]['model_path'])
-    elif backbone == "inception":
+    elif backbone == BACKBONE.INCEPTION_RESNET2:
         model = create_inception_model(input_shape, anchors, num_classes, False,
                                        freeze_body=1,
                                        weights_path=model_config[backbone]['model_path'])
-    elif backbone == "densenet":
+    elif backbone == BACKBONE.DENSENET:
         model = create_densenet_model(input_shape, anchors, num_classes, False,
                                        freeze_body=1,
                                        weights_path=model_config[backbone]['model_path'])
-    if opt=="debug":
+    if opt==OPT.DEBUG:
         tf.keras.backend.set_session(tf_debug.TensorBoardDebugWrapperSession(tf.Session(),'localhost:6064'))
-    elif opt=="xla":
+    elif opt==OPT.XLA:
         config=tf.ConfigProto
         config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
         sess=tf.Session(config=config)

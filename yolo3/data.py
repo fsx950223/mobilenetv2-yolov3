@@ -34,11 +34,11 @@ def tfrecord_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, 
             }
             features = tf.io.parse_single_example(example_proto, feature_description)
             image, bbox = get_random_data(features['image/encoded'],
-                                          features['image/object/bbox/xmin'],
-                                          features['image/object/bbox/xmax'],
-                                          features['image/object/bbox/ymin'],
-                                          features['image/object/bbox/ymax'],
-                                          features['image/object/bbox/label'],
+                                          features['image/object/bbox/xmin'].values,
+                                          features['image/object/bbox/xmax'].values,
+                                          features['image/object/bbox/ymin'].values,
+                                          features['image/object/bbox/ymax'].values,
+                                          features['image/object/bbox/label'].values,
                                           input_shape, train=train)
 
             y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
