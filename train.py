@@ -106,7 +106,7 @@ def _main():
                   callbacks=[logging, checkpoint],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num // batch_size))
-        model.save_weights(log_dir + backbone + '_trained_weights_stage_1.h5')
+        model.save_weights(log_dir + str(backbone).split('.')[1].lower() + '_trained_weights_stage_1.h5')
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
@@ -122,7 +122,7 @@ def _main():
                   callbacks=[logging,checkpoint, reduce_lr, early_stopping],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num // batch_size))
-        model.save_weights(log_dir + backbone + '_trained_weights_final.h5')
+        model.save_weights(log_dir + str(backbone).split('.')[1].lower() + '_trained_weights_final.h5')
 
     # Further training if needed.
 

@@ -46,11 +46,11 @@ def tfrecord_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, 
             return (image, y0, y1, y2), 0
 
         if train:
-            train_sum = reduce(lambda x, y: x + y,
+            train_num = reduce(lambda x, y: x + y,
                                map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
-                cycle_length=len(files),num_parallel_calls=AUTOTUNE).shuffle(300).map(parse, num_parallel_calls=AUTOTUNE).repeat().prefetch(batch_size).batch(batch_size)
+                cycle_length=len(files),num_parallel_calls=AUTOTUNE).shuffle(train_num).map(parse, num_parallel_calls=AUTOTUNE).repeat().prefetch(batch_size).batch(batch_size)
         else:
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
