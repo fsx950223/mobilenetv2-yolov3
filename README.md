@@ -23,7 +23,19 @@ optional arguments:
   --export           Export binary pb model for tensorflow,which you can put it in tensorflow serving directly
 ```
 ---
-
+# Train
+* Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
+* Change [train.py](https://github.com/fsx950223/mobilenetv2-yolov3/blob/master/train.py)
+    ``` python
+    opt = <your session config>
+    backbone = <your yolov3 backbone>
+    log_dir = <path/to/your/tensorboard/log>
+    batch_size = <you batch size>
+    train_dataset_path = <path/to/your/train/folder>
+    val_dataset_path = <path/to/your/val/folder>
+    train_dataset_glob = <train glob>
+    val_dataset_glob = <val glob>
+    ```
 # Performance
 3 times faster than darknet53-yolov3 with alpha=1.4 and higher accuracy
 
