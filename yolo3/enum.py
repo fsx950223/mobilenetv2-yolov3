@@ -13,3 +13,8 @@ class BACKBONE(Enum):
     INCEPTION_RESNET2=1
     DENSENET=2
     DARKNET53=3
+
+@unique
+class BOX_LOSS(Enum):
+    MSE=0
+    GIOU=1

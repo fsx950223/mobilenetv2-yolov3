@@ -30,7 +30,7 @@ def _main():
     model_config = {
         BACKBONE.MOBILENETV2: {
             "input_size": (320, 320),
-            "model_path": '../download/trained_weights_final6.h5',
+            "model_path": '../download/mobilenetv22019-04-06mobilenetv2_trained_weights_final.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
             "classes_path": 'model_data/voc_classes.txt'
         },
@@ -59,8 +59,8 @@ def _main():
     anchors = get_anchors(model_config[backbone]['anchors_path'])
     input_shape = model_config[backbone]['input_size']  # multiple of 32, hw
 
-    train_dataset,train_num=auto_dataset(train_dataset_path, train_dataset_glob, batch_size, input_shape, anchors, num_classes)
-    val_dataset,val_num=auto_dataset(val_dataset_path, val_dataset_glob, batch_size, input_shape, anchors, num_classes,train=False)
+    train_dataset,train_num=auto_dataset(os.path.join(train_dataset_path, train_dataset_glob), batch_size, input_shape, anchors, num_classes)
+    val_dataset,val_num=auto_dataset(os.path.join(val_dataset_path, val_dataset_glob), batch_size, input_shape, anchors, num_classes,train=False)
 
     strategy = tf.distribute.MirroredStrategy()
     batch_size = batch_size * strategy.num_replicas_in_sync
@@ -88,7 +88,7 @@ def _main():
         sess=tf.Session(config=config)
         tf.keras.backend.set_session(sess)
     logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir,write_grads=True,write_images=True)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(log_dir,'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
                                                     monitor='val_loss', save_weights_only=True, save_best_only=True,
                                                     period=3)
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
@@ -98,7 +98,7 @@ def _main():
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
     if True:
         #with strategy.scope():
-        model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
+        model.compile(optimizer=tf.keras.optimizers.Adam(1e-3,epsilon=1e-8),
                           loss={'yolo_loss': lambda y_true, y_pred: y_pred})
         model.fit(train_dataset,
                   epochs=10, initial_epoch=0,
@@ -106,7 +106,7 @@ def _main():
                   callbacks=[logging, checkpoint],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num // batch_size))
-        model.save_weights(log_dir + str(backbone).split('.')[1].lower() + '_trained_weights_stage_1.h5')
+        model.save_weights(os.path.join(log_dir,str(backbone).split('.')[1].lower() + '_trained_weights_stage_1.h5'))
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
@@ -114,7 +114,7 @@ def _main():
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
        # with strategy.scope():
-        model.compile(optimizer=tf.keras.optimizers.Adam(1e-4),
+        model.compile(optimizer=tf.keras.optimizers.Adam(1e-4,epsilon=1e-8),
                           loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
         model.fit(train_dataset,
@@ -122,7 +122,7 @@ def _main():
                   callbacks=[logging,checkpoint, reduce_lr, early_stopping],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num // batch_size))
-        model.save_weights(log_dir + str(backbone).split('.')[1].lower() + '_trained_weights_final.h5')
+        model.save_weights(os.path.join(log_dir,str(backbone).split('.')[1].lower() + '_trained_weights_final.h5'))
 
     # Further training if needed.
 
@@ -150,7 +150,7 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
     h, w = input_shape
     num_anchors = len(anchors)
     x_data = tf.keras.layers.Input(shape=(h, w, 3))
-    y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
+    y_data = [tf.keras.layers.Input(shape=(h // [ 32, 16, 8][l], w // [32, 16, 8][l], \
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
 
     model_body = darknet_yolo_body(x_data, num_anchors // 3, num_classes)
@@ -204,7 +204,7 @@ def create_inception_model(input_shape, anchors, num_classes, load_pretrained: b
     x_data = tf.keras.layers.Input(shape=(h, w, 3))
     h = h - 64
     w = w - 64
-    y_data = [tf.keras.layers.Input(shape=(h // {0: 32, 1: 16, 2: 8}[l], w // {0: 32, 1: 16, 2: 8}[l], \
+    y_data = [tf.keras.layers.Input(shape=(h // [32, 16, 8][l], w // [32, 16, 8][l], \
                                            num_anchors // 3, num_classes + 5)) for l in range(3)]
     model_body = inception_yolo_body(x_data, num_anchors // 3, num_classes)
     print('Create Inception-Res2-YOLOv3 model with {} anchors and {} classes.'.format(num_anchors, num_classes))

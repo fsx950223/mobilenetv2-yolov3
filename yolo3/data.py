@@ -101,8 +101,8 @@ def text_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, int]
         #draw_image(dataset)
         return dataset
 
-def auto_dataset(dataset_path:str,glob:str,batch_size,input_shape,anchors,num_classes,train: bool = True):
-    files = tf.io.gfile.glob(os.path.join(dataset_path, glob))
+def auto_dataset(glob:str,batch_size,input_shape,anchors,num_classes,train: bool = True):
+    files = tf.io.gfile.glob(glob)
     num = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
     if glob.endswith('.tfrecords'):
         return tfrecord_dataset(files, batch_size, input_shape, anchors, num_classes,train),num
