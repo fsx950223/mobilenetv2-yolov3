@@ -9,7 +9,6 @@ def compose(*funcs):
 
     Reference: https://mathieularose.com/function-composition-in-python/
     """
-    # return lambda x: reduce(lambda v, f: f(v), funcs, x)
     if funcs:
         return reduce(lambda f, g: lambda *a, **kw: g(f(*a, **kw)), funcs)
     else:
@@ -40,8 +39,9 @@ def random_blur(image):
     image.set_shape([h, w, 3])
     return image
 
-def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape, jitter = .3,min_gamma=0.6,max_gamma=4,blur=True,hue=.1, sat=.2,val=0.,cont=.3,noise=0.1, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.5,max_scale=1.5, jitter = .3,min_gamma=0.6,max_gamma=4,blur=False,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=100,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
+
     image = tf.image.decode_jpeg(image, channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
     iw, ih = tf.cast(tf.shape(image)[1], tf.float32), tf.cast(tf.shape(image)[0], tf.float32)

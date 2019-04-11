@@ -1,24 +1,14 @@
 import tensorflow as tf
-from yolo3.model import preprocess_true_boxes
 from typing import Tuple, List
 from functools import reduce
 from yolo3.utils import get_random_data
-import os
 import numpy as np
+from yolo3.model import preprocess_true_boxes
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-def draw_image(dataset):
-    file_writer_cm = tf.summary.create_file_writer('logs/cm')
-    iter=dataset.__iter__()
-    images,_,_,_=iter.get_next()[0]
-    images = np.reshape(images[0:25], (-1, 28, 28, 1))
-    with file_writer_cm.as_default():
-        tf.summary.image('input_image', images,max_outputs=25, step=0)
 
-def tfrecord_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, int],
-                   anchors: List[float],
-                   num_classes: int,
-                   train: bool = True):
+def tfrecord_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, int],anchors: List[float],
+                   num_classes: int,train: bool = True):
     with tf.device('/cpu:0'):
         dataset = tf.data.Dataset.from_tensor_slices(files)
         """data generator for fit_generator"""
@@ -40,10 +30,9 @@ def tfrecord_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, 
                                           features['image/object/bbox/ymax'].values,
                                           features['image/object/bbox/label'].values,
                                           input_shape, train=train)
-
-            y0, y1, y2 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
+            y1, y2, y3 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
                                         [tf.float32, tf.float32, tf.float32])
-            return (image, y0, y1, y2), 0
+            return image, (y1, y2, y3)
 
         if train:
             train_num = reduce(lambda x, y: x + y,
@@ -51,17 +40,16 @@ def tfrecord_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, 
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
                 cycle_length=len(files),num_parallel_calls=AUTOTUNE).shuffle(train_num).map(parse, num_parallel_calls=AUTOTUNE).repeat().prefetch(batch_size).batch(batch_size)
+
         else:
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
                 cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(parse, num_parallel_calls=AUTOTUNE).repeat().prefetch(batch_size).batch(batch_size)
-        #draw_image(dataset)
+
         return dataset
 
-def text_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, int],
-                   anchors: List[float],
-                   num_classes: int,
-                   train: bool = True):
+def text_dataset(files: List[str],batch_size: int, input_shape: Tuple[int, int],    anchors: List[float],
+                   num_classes: int,train: bool = True):
     with tf.device('/cpu:0'):
         dataset = tf.data.Dataset.from_tensor_slices(files)
         def parse(line):
@@ -98,13 +86,12 @@ def text_dataset(files: List[str], batch_size: int, input_shape: Tuple[int, int]
             dataset = dataset.interleave(
                 lambda file: tf.data.TextLineDataset(file),
                 cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(parse, num_parallel_calls=AUTOTUNE).repeat().prefetch(batch_size).batch(batch_size)
-        #draw_image(dataset)
         return dataset
 
-def auto_dataset(glob:str,batch_size,input_shape,anchors,num_classes,train: bool = True):
-    files = tf.io.gfile.glob(glob)
+def auto_dataset(glob_path:str,batch_size,input_shape,anchors,num_classes,train: bool = True):
+    files = tf.io.gfile.glob(glob_path)
     num = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-    if glob.endswith('.tfrecords'):
-        return tfrecord_dataset(files, batch_size, input_shape, anchors, num_classes,train),num
-    elif glob.endswith('.txt'):
-        return text_dataset(files, batch_size, input_shape, anchors, num_classes,train),num
+    if glob_path.endswith('.tfrecords'):
+        return tfrecord_dataset(files, batch_size,input_shape,anchors,num_classes, train),num
+    elif glob_path.endswith('.txt'):
+        return text_dataset(files, batch_size,input_shape,anchors,num_classes,train),num

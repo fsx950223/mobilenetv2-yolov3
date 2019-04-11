@@ -93,19 +93,6 @@ def _make_divisible(v, divisor, min_value=None):
         new_v += divisor
     return new_v
 
-def make_mobilenet_last_layers(x, alpha, filters,out_filters):
-    '''6 Conv2D_BN_Leaky layers followed by a Conv2D_linear layer'''
-    x = compose(
-        MobilenetConv2D_BN_Relu((1, 1),alpha, filters),
-        MobilenetConv2D_BN_Relu((3, 3),alpha, filters*2),
-        MobilenetConv2D_BN_Relu((1, 1),alpha, filters),
-        MobilenetConv2D_BN_Relu((3, 3),alpha, filters*2),
-        MobilenetConv2D_BN_Relu((1, 1),alpha, filters))(x)
-    y = compose(
-        MobilenetConv2D_BN_Relu((3,3),alpha, filters),
-        DarknetConv2D(out_filters, (1, 1)))(x)
-    return x, y
-
 def MobilenetConv2D_BN_Relu(kernel,alpha, filters):
     last_block_filters = _make_divisible(filters * alpha, 8)
     return compose(tf.keras.layers.Conv2D(last_block_filters,
@@ -128,13 +115,13 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     y2 = MobilenetConv2D_BN_Relu((1,1),alpha, 640)(x)
     y2 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
     x = compose(
-        MobilenetConv2D_BN_Relu((1,1),alpha, 320),
+        MobilenetConv2D_BN_Relu((1,1),alpha, 384),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
-        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 320)(mobilenetv2.get_layer('block_5_project_BN').output)])
-    y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 320)(x)
+        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 384)(mobilenetv2.get_layer('block_5_project_BN').output)])
+    y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 384)(x)
     y3 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
-    return tf.keras.models.Model(inputs, [y1, y2, y3])
+    return tf.keras.models.Model(inputs, [y1,y2,y3])
 
 def inception_block(filters, kernel):
     return compose(
@@ -186,7 +173,7 @@ def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_sha
     # Reshape to batch, height, width, num_anchors, box_params.
     anchors_tensor = tf.reshape(tf.constant(anchors), [1, 1, 1, num_anchors, 2])
 
-    grid_shape = tf.shape(feats)[1:3]  # height, width
+    grid_shape = feats.shape[1:3].as_list()  # height, width
     grid_y = tf.tile(tf.reshape(tf.range(0, grid_shape[0]), [-1, 1, 1, 1]),
                      [1, grid_shape[1], 1, 1])
     grid_x = tf.tile(tf.reshape(tf.range(0, grid_shape[1]), [1, -1, 1, 1]),
@@ -200,11 +187,10 @@ def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_sha
     # Adjust preditions to each spatial grid point and anchor size.
     box_xy = (tf.sigmoid(feats[..., :2]) + grid) / tf.cast(grid_shape[::-1], feats.dtype)
     box_wh = tf.exp(feats[..., 2:4]) * tf.cast(anchors_tensor, feats.dtype) / tf.cast(input_shape[::-1], feats.dtype)
-    box_confidence = tf.sigmoid(feats[..., 4:5])
-    box_class_probs = tf.sigmoid(feats[..., 5:])
-
     if calc_loss == True:
         return grid, feats, box_xy, box_wh
+    box_confidence = tf.sigmoid(feats[..., 4:5])
+    box_class_probs = tf.sigmoid(feats[..., 5:])
     return box_xy, box_wh, box_confidence, box_class_probs
 
 
@@ -305,7 +291,6 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     y_true: list of array, shape like yolo_outputs, xywh are reletive value
 
     '''
-    # assert (true_boxes[..., 4] < num_classes).all(), 'class id must be less than num_classes'
     num_layers = len(anchors) // 3  # default setting
     anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
     true_boxes = np.array(true_boxes, dtype='float32')
@@ -424,7 +409,7 @@ def box_giou(b1, b2):
     giou=iou-(enclose_area-union_area)/enclose_area
     return giou
 
-def yolo_loss(args, anchors, num_classes: int, ignore_thresh: float = .5, box_loss=BOX_LOSS.GIOU,print_loss: bool = False):
+def yolo_loss(yolo_outputs,y_true,input_shape, anchors, num_classes: int, ignore_thresh: float = .5, box_loss=BOX_LOSS.GIOU,print_loss: bool = False):
     '''Return yolo_loss tensor
 
     Parameters
@@ -440,60 +425,58 @@ def yolo_loss(args, anchors, num_classes: int, ignore_thresh: float = .5, box_lo
     loss: tensor, shape=(1,)
 
     '''
-    num_layers = len(anchors) // 3  # default setting
-    yolo_outputs = args[:num_layers]
-    y_true = args[num_layers:]
+    strides=[32,16,8]
+    idx=strides.index(input_shape[0] // int(yolo_outputs.shape[1]))
     anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-    input_shape = tf.cast(tf.shape(yolo_outputs[0])[1:3] * 32, y_true[0].dtype)
     loss = 0
-    m = tf.shape(yolo_outputs[0])[0]  # batch size, tensor
-    mf = tf.cast(m, yolo_outputs[0].dtype)
-    for l in range(num_layers):
-        object_mask = y_true[l][..., 4:5]
-        true_class_probs = y_true[l][..., 5:]
-        grid, raw_pred, pred_xy, pred_wh = yolo_head(yolo_outputs[l],
-                                                     anchors[anchor_mask[l]], num_classes, input_shape, calc_loss=True)
-        pred_box = tf.concat([pred_xy, pred_wh], -1)
-        # Find ignore mask, iterate over each of batch.
-        ignore_mask = tf.TensorArray(y_true[0].dtype, size=1, dynamic_size=True)
-        object_mask_bool = tf.cast(object_mask, 'bool')
-        def loop_body(b, ignore_mask):
-            true_box = tf.boolean_mask(y_true[l][b, ..., 0:4], object_mask_bool[b, ..., 0])
-            giou = box_iou(tf.expand_dims(pred_box[b],-2), tf.expand_dims(true_box,0))
-            best_giou = tf.reduce_max(giou, axis=-1)
-            ignore_mask = ignore_mask.write(b, tf.cast(best_giou < ignore_thresh, true_box.dtype))
-            return b + 1, ignore_mask
+    m = tf.shape(yolo_outputs)[0]  # batch size, tensor
+    mf = tf.cast(m, yolo_outputs.dtype)
+    object_mask = y_true[..., 4:5]
+    true_class_probs = y_true[..., 5:]
+    grid, raw_pred, pred_xy, pred_wh = yolo_head(yolo_outputs,
+                                                 anchors[anchor_mask[idx]], num_classes, input_shape, calc_loss=True)
+    pred_box = tf.concat([pred_xy, pred_wh], -1)
+    # Find ignore mask, iterate over each of batch.
+    ignore_mask = tf.TensorArray(y_true.dtype, size=1, dynamic_size=True)
+    object_mask_bool = tf.cast(object_mask, 'bool')
+    def loop_body(b, ignore_mask):
+        true_box = tf.boolean_mask(y_true[b, ..., 0:4], object_mask_bool[b, ..., 0])
+        iou = box_iou(tf.expand_dims(pred_box[b],-2), tf.expand_dims(true_box,0))
+        best_iou = tf.reduce_max(iou, axis=-1)
+        ignore_mask = ignore_mask.write(b, tf.cast(best_iou < ignore_thresh, true_box.dtype))
+        return b + 1, ignore_mask
 
-        _, ignore_mask = tf.while_loop(lambda b, *args: b < m, loop_body, [0, ignore_mask])
-        ignore_mask = ignore_mask.stack()
-        ignore_mask = tf.expand_dims(ignore_mask, -1)
-        confidence_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
-                                                                                logits=raw_pred[..., 4:5]) + \
-                          (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
-                                                                                      logits=raw_pred[...,4:5]) * ignore_mask
-        class_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=true_class_probs,
-                                                                           logits=raw_pred[..., 5:])
-        confidence_loss = tf.reduce_sum(confidence_loss) / mf
-        class_loss = tf.reduce_sum(class_loss) / mf
-        if box_loss==BOX_LOSS.GIOU:
-            giou=box_giou(pred_box[...,:4],y_true[l][...,:4])
-            box_loss_scale = 2 - y_true[l][..., 2:3] * y_true[l][..., 3:4]/tf.reduce_prod(input_shape)
-            giou_loss=object_mask*box_loss_scale*(1-tf.expand_dims(giou,-1))
-            giou_loss = tf.reduce_sum(giou_loss) / mf
-            loss+=giou_loss+confidence_loss+class_loss
-            if print_loss:
-                tf.print(giou_loss,confidence_loss,class_loss)
-        elif box_loss==BOX_LOSS.MSE:
-            grid_shapes = [tf.cast(tf.shape(yolo_outputs[l])[1:3], y_true[0].dtype) for l in range(num_layers)]
-            raw_true_xy = y_true[l][..., :2] * grid_shapes[l][::-1] - grid
-            raw_true_wh = tf.math.log(y_true[l][..., 2:4] / anchors[anchor_mask[l]] * input_shape[::-1])
-            raw_true_wh = tf.keras.backend.switch(object_mask, raw_true_wh, tf.zeros_like(raw_true_wh))  # avoid log(0)=-inf
-            xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels=raw_true_xy,
-                                                                                           logits=raw_pred[..., 0:2])
-            wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - raw_pred[..., 2:4])
-            xy_loss = tf.reduce_sum(xy_loss) / mf
-            wh_loss = tf.reduce_sum(wh_loss) / mf
-            loss += xy_loss + wh_loss + confidence_loss + class_loss
-            if print_loss:
-                tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask))
+    _, ignore_mask = tf.while_loop(lambda b, *args: b < m, loop_body, [0, ignore_mask])
+    ignore_mask = ignore_mask.stack()
+    ignore_mask = tf.expand_dims(ignore_mask, -1)
+    confidence_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
+                                                                            logits=raw_pred[..., 4:5]) + \
+                      (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
+                                                                                  logits=raw_pred[...,4:5]) * ignore_mask
+    class_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=true_class_probs,
+                                                                       logits=raw_pred[..., 5:])
+    confidence_loss = tf.reduce_sum(confidence_loss) / mf
+    class_loss = tf.reduce_sum(class_loss) / mf
+    if box_loss==BOX_LOSS.GIOU:
+        giou=box_giou(pred_box[...,:4],y_true[...,:4])
+        box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]/tf.cast(tf.reduce_prod(input_shape),tf.float32)
+        giou_loss=object_mask*box_loss_scale*(1-tf.expand_dims(giou,-1))
+        giou_loss = tf.reduce_sum(giou_loss) / mf
+        loss+=giou_loss+confidence_loss+class_loss
+        if print_loss:
+            tf.print(giou_loss,confidence_loss,class_loss)
+    elif box_loss==BOX_LOSS.MSE:
+        grid_shape = tf.cast(tf.shape(yolo_outputs)[1:3], y_true.dtype)
+        raw_true_xy = y_true[..., :2] * grid_shape[::-1] - grid
+        raw_true_wh = tf.math.log(y_true[..., 2:4] / anchors[anchor_mask[l]] * input_shape[::-1])
+        raw_true_wh = tf.keras.backend.switch(object_mask, raw_true_wh, tf.zeros_like(raw_true_wh))
+        box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]
+        xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels=raw_true_xy,
+                                                                                       logits=raw_pred[..., 0:2])
+        wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - raw_pred[..., 2:4])
+        xy_loss = tf.reduce_sum(xy_loss) / mf
+        wh_loss = tf.reduce_sum(wh_loss) / mf
+        loss += xy_loss + wh_loss + confidence_loss + class_loss
+        if print_loss:
+            tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask))
     return loss

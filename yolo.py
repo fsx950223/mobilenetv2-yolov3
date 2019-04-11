@@ -5,12 +5,14 @@ Class definition of YOLO_v3 style detection model on image and video
 
 import colorsys
 from timeit import default_timer as timer
+from tempfile import TemporaryFile
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
 from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,inception_yolo_body,densenet_yolo_body
 from yolo3.utils import letterbox_image
 from yolo3.enum import OPT,BACKBONE
+from yolo3.data import auto_dataset
 import os
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
@@ -26,8 +28,8 @@ class YOLO(object):
         "backbone":BACKBONE.MOBILENETV2,
         "model_config":{
             BACKBONE.MOBILENETV2:{
-                "input_size":(224,224),
-                "model_path": '../download/mobilenetv2_trained_weights_stage_12.h5',
+                "input_size":(320,320),
+                "model_path": './logs/mobilenetv22019-04-10/ep009-loss0.098-val_loss0.208.h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -50,8 +52,8 @@ class YOLO(object):
                 "classes_path": 'model_data/voc_classes.txt'
             }
         },
-        "score": 0.1,
-        "iou": 0.5,
+        "score": 0.2,
+        "nms": 0.3,
         "opt":OPT.XLA
     }
 
@@ -68,6 +70,7 @@ class YOLO(object):
         self.class_names = self._get_class()
         self.anchors = self._get_anchors()
         self.alpha=1.4
+        self.input_shape=self.model_config[self.backbone]['input_size']
         config = tf.ConfigProto()
         tf.keras.backend.set_learning_phase(0)
         if self.opt==OPT.XLA:
@@ -116,7 +119,7 @@ class YOLO(object):
         except:
             if self.backbone==BACKBONE.MOBILENETV2:
                 self.yolo_model = mobilenetv2_yolo_body(
-                    tf.keras.layers.Input(shape=(*self.model_config[self.backbone]['input_size'], 3), name='predict_image'),
+                    tf.keras.layers.Input(shape=(*self.input_shape, 3), name='predict_image'),
                     num_anchors // 3,
                     num_classes, self.alpha)
             elif self.backbone==BACKBONE.DARKNET53:
@@ -131,7 +134,6 @@ class YOLO(object):
             assert self.yolo_model.layers[-1].output_shape[-1] == \
                    num_anchors / len(self.yolo_model.output) * (num_classes + 5), \
                 'Mismatch between model and given anchor and class sizes'
-
         print('{} model, anchors, and classes loaded.'.format(model_path))
         # Generate colors for drawing bounding boxes.
         hsv_tuples: List[Tuple[float, float, float]] = [(x / len(self.class_names), 1., 1.)
@@ -151,7 +153,7 @@ class YOLO(object):
             self.input_image_shape = tf.placeholder(tf.float32, shape=(2,),name="image_size")
             boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
                                                len(self.class_names), self.input_image_shape,
-                                               score_threshold=self.score, iou_threshold=self.iou)
+                                               score_threshold=self.score, iou_threshold=self.nms)
             return boxes, scores, classes
 
     def export_serving_model(self, path: str) -> None:
@@ -166,11 +168,11 @@ class YOLO(object):
 
     def detect_image(self, image) -> Image:
         if tf.executing_eagerly():
-            if self.model_config[self.backbone]['input_size'] != (None, None):
-                assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
-                assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
+            if self.input_shape != (None, None):
+                assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
+                assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
                 boxed_image, image_shape = letterbox_image(image, tuple(
-                    reversed(self.model_config[self.backbone]['input_size'])))
+                    reversed(self.input_shape)))
             else:
                 height, width, _ = image.shape
                 new_image_size = (width - (width % 32), height - (height % 32))
@@ -179,11 +181,11 @@ class YOLO(object):
             start = timer()
             output=self.yolo_model.predict(image_data)
             out_boxes, out_scores, out_classes=yolo_eval(output,self.anchors,len(self.class_names),image_shape[0:2],
-                    score_threshold=self.score, iou_threshold=self.iou)
+                    score_threshold=self.score, iou_threshold=self.nms)
             end = timer()
             image = Image.fromarray((np.array(image) * 255).astype('uint8'), 'RGB')
         else:
-            size=self.model_config[self.backbone]['input_size']
+            size=self.input_shape
             iw, ih = image.size
             w, h = size
             scale = min(w / iw, h / ih)
@@ -246,12 +248,26 @@ class YOLO(object):
         print(end - start)
         return image
 
+    def calculate_map(self,glob):
+        num_classes = len(self.class_names)
+        test_dataset, test_num = auto_dataset(glob, 1, self.input_shape,
+                                              self.anchors, num_classes)
+        start = timer()
+        for batch in test_dataset:
+            output = self.yolo_model.predict(batch)
+            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, len(self.class_names), batch[0:2],
+                                                           score_threshold=self.score, iou_threshold=self.nms)
+            with TemporaryFile('w+t') as f:
+                f.write(str(out_boxes)+' '+str(out_scores)+' '+str(out_classes)+'\n')
+        end = timer()
+        print('Test number: '+test_num,end-start)
+
     def detect_image_test(self, image):
 
-        if self.model_config[self.backbone]['input_size'] != (None, None):
-            assert self.model_config[self.backbone]['input_size'][0] % 32 == 0, 'Multiples of 32 required'
-            assert self.model_config[self.backbone]['input_size'][1] % 32 == 0, 'Multiples of 32 required'
-            boxed_image = letterbox_image(image, tuple(reversed(self.model_config[self.backbone]['input_size'])))
+        if self.input_shape != (None, None):
+            assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
+            assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
+            boxed_image = letterbox_image(image, tuple(reversed(self.input_shape)))
         else:
             new_image_size = (image.width - (image.width % 32),
                               image.height - (image.height % 32))
