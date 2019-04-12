@@ -22,7 +22,12 @@ Tensorflow:
 - [ ] Remove image shape input when use session
 - [ ] Convert model to tensorflow lite model
 - [ ] Multi GPU training support
+# Requirement
+Tensorflow-1.13+
 
+Numpy-1.16.2+
+
+Python-3.6.7+
 # Usage
 ```
 usage: yolo_video.py [-h] [--model MODEL] [--anchors ANCHORS]

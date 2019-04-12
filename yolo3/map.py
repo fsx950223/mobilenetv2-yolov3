@@ -107,7 +107,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
         idx=0
         APs={}
         start=timer()
-        for image,bbox in test_dataset:
+        for image,bbox in test_dataset.take(100):
             if self.input_shape != (None, None):
                 assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
                 assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
@@ -127,10 +127,10 @@ class MAPCallback(tf.keras.callbacks.Callback):
                     [out_classes[i].numpy(), out_scores[i].numpy(), out_boxes[i].numpy()])
             true_res[idx]=[]
             for item in list(np.transpose(bbox)):
-                item[0]/image.shape[1]
-                item[2] / image.shape[1]
-                item[1] / image.shape[0]
-                item[3] / image.shape[0]
+                item[0]/int(image.shape[1])
+                item[2] / int(image.shape[1])
+                item[1] / int(image.shape[0])
+                item[3] / int(image.shape[0])
                 true_res[idx].append(item)
             idx+=1
         end=timer()
@@ -146,8 +146,8 @@ class MAPCallback(tf.keras.callbacks.Callback):
                                      'difficult':[False]*len(objs),
                                      'det': [False] * len(objs)}
             ids = np.concatenate([[x]*len(pred_res[x]) for x in pred_res])
-            scores = np.concatenate([np.array(pred_res[x])[:,1] for x in pred_res],0)
-            bboxs = np.concatenate([np.array(pred_res[x])[:,2] for x in pred_res],0)
+            scores = np.concatenate([np.stack(pred_res[x])[:,1] for x in pred_res if len(pred_res[x])>0],0)
+            bboxs = np.concatenate([np.stack(pred_res[x])[:,2] for x in pred_res if len(pred_res[x])>0],0)
             sorted_ind = np.argsort(-scores)
             bboxs = bboxs[sorted_ind]
 
