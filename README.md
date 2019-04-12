@@ -1,5 +1,26 @@
 # mobilenetv2-yolov3
 Tensorflow implementation mobilenetv2-yolov3 inspired by [keras-yolo3](https://github.com/qqwweee/keras-yolo3.git)
+# Update
+Backend:
+- [x] MobilenetV2
+- [x] Densenet
+- [x] Darknet53
+- [ ] Inception-ResV2
+
+Callback:
+- [x] mAP
+- [ ] Tensorboard extern callback
+
+Loss:
+- [x] MSE
+- [ ] IOU
+- [x] GIOU
+
+Tensorflow:
+- [x] Tensorflow2 Ready
+- [x] Use tf.data to load dataset
+- [ ] Remove image shape input when use session
+= [ ] Convert model to tensorflow lite model
 
 # Usage
 ```
@@ -36,6 +57,7 @@ optional arguments:
     train_dataset_glob = <train glob>
     val_dataset_glob = <val glob>
     ```
+    
 # Performance
 3 times faster than darknet53-yolov3 with alpha=1.4 and higher accuracy
 
