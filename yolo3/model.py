@@ -92,7 +92,33 @@ def _make_divisible(v, divisor, min_value=None):
     if new_v < 0.9 * v:
         new_v += divisor
     return new_v
-
+# def make_last_layers_mobilenet():
+#     Separable_Conv
+# def Separable_Conv(x,prefix,stride,filters,alpha):
+#     pointwise_conv_filters = int(filters * alpha)
+#     pointwise_filters = _make_divisible(pointwise_conv_filters, 8)
+#     x = tf.keras.layers.DepthwiseConv2D(kernel_size=3,
+#                                strides=stride,
+#                                activation=None,
+#                                use_bias=False,
+#                                padding='same' if stride == 1 else 'valid',
+#                                name=prefix + 'depthwise')(x)
+#     x = tf.keras.layers.BatchNormalization(epsilon=1e-3,
+#                                   momentum=0.999,
+#                                   name=prefix + 'depthwise_BN')(x)
+#
+#     x = tf.keras.layers.ReLU(6., name=prefix + 'depthwise_relu')(x)
+#
+#     # Project
+#     x = tf.keras.layers.Conv2D(pointwise_filters,
+#                       kernel_size=1,
+#                       padding='same',
+#                       use_bias=False,
+#                       activation=None,
+#                       name=prefix + 'project')(x)
+#     x = tf.keras.layers.BatchNormalization(
+#         epsilon=1e-3, momentum=0.999, name=prefix + 'project_BN')(x)
+#     return x
 def MobilenetConv2D_BN_Relu(kernel,alpha, filters):
     last_block_filters = _make_divisible(filters * alpha, 8)
     return compose(tf.keras.layers.Conv2D(last_block_filters,
@@ -173,7 +199,7 @@ def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_sha
     # Reshape to batch, height, width, num_anchors, box_params.
     anchors_tensor = tf.reshape(tf.constant(anchors), [1, 1, 1, num_anchors, 2])
 
-    grid_shape = feats.shape[1:3].as_list()  # height, width
+    grid_shape = [int(dim) for dim in list(feats.shape[1:3])] # height, width
     grid_y = tf.tile(tf.reshape(tf.range(0, grid_shape[0]), [-1, 1, 1, 1]),
                      [1, grid_shape[1], 1, 1])
     grid_x = tf.tile(tf.reshape(tf.range(0, grid_shape[1]), [1, -1, 1, 1]),

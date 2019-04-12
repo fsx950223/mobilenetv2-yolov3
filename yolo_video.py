@@ -92,6 +92,10 @@ if __name__ == '__main__':
         help='Image detection mode, will ignore all positional arguments'
     )
     parser.add_argument(
+        '--map', default=False, action="store_true",
+        help='Calculate map with test dataset'
+    )
+    parser.add_argument(
         '--export', default=False, action="store_true",
         help='Export hdf5 model to serving model'
     )
@@ -114,7 +118,10 @@ if __name__ == '__main__':
         "--output", nargs='?', type=str, default="",
         help = "[Optional] Video output path"
     )
-
+    parser.add_argument(
+        "--test_dataset", nargs='?', type=str, default="",
+        help="[Optional] Test dataset glob"
+    )
     FLAGS = parser.parse_args()
 
     if FLAGS.image:
@@ -133,6 +140,14 @@ if __name__ == '__main__':
         if "input" in FLAGS:
             print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
         test_img(YOLO(**vars(FLAGS)))
+    elif FLAGS.map:
+        """
+        Calculate test dataset map
+        """
+        print("map")
+        if "input" in FLAGS:
+            print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
+        YOLO(**vars(FLAGS)).calculate_map(FLAGS.test_dataset)
     elif FLAGS.export:
         """
         Export model protobuffer

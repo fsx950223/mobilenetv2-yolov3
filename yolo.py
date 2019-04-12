@@ -28,8 +28,8 @@ class YOLO(object):
         "backbone":BACKBONE.MOBILENETV2,
         "model_config":{
             BACKBONE.MOBILENETV2:{
-                "input_size":(320,320),
-                "model_path": './logs/mobilenetv22019-04-10/ep009-loss0.098-val_loss0.208.h5',
+                "input_size":(416,416),
+                "model_path": '../download/mobilenetv2_trained_weights_final (10).h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -53,7 +53,7 @@ class YOLO(object):
             }
         },
         "score": 0.2,
-        "nms": 0.3,
+        "nms": 0.5,
         "opt":OPT.XLA
     }
 

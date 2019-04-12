@@ -42,8 +42,6 @@ def random_blur(image):
 def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.5,max_scale=1.5, jitter = .3,min_gamma=0.6,max_gamma=4,blur=False,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=100,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
 
-    image = tf.image.decode_jpeg(image, channels=3)
-    image = tf.image.convert_image_dtype(image, tf.float32)
     iw, ih = tf.cast(tf.shape(image)[1], tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
     w,h = tf.cast(input_shape[1], tf.float32), tf.cast(input_shape[0], tf.float32)
     xmax = tf.expand_dims(xmax, 0)
@@ -53,7 +51,7 @@ def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.5,ma
     label = tf.expand_dims(label, 0)
     if train:
         new_ar = w / h * tf.random.uniform([], 1 - jitter, 1 + jitter) / tf.random.uniform([], 1 - jitter, 1 + jitter)
-        scale = tf.random.uniform([], 0.25, 2)
+        scale = tf.random.uniform([], min_scale, max_scale)
         nw, nh = tf.cond(tf.less(new_ar, 1), lambda: (scale * h * new_ar, scale * h),
                          lambda: (scale * w, scale * w / new_ar))
         dx = tf.random.uniform([], 0, w - nw)
