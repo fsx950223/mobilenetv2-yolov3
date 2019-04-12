@@ -20,7 +20,8 @@ Tensorflow:
 - [x] Tensorflow2 Ready
 - [x] Use tf.data to load dataset
 - [ ] Remove image shape input when use session
-= [ ] Convert model to tensorflow lite model
+- [ ] Convert model to tensorflow lite model
+- [ ] Multi GPU training support
 
 # Usage
 ```
