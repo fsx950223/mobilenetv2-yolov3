@@ -147,6 +147,12 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
         [x, MobilenetConv2D_BN_Relu((1,1),alpha, 384)(mobilenetv2.get_layer('block_5_project_BN').output)])
     y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 384)(x)
     y3 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
+    y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
+        feats, [-1, int(inputs.shape[1]) // 32, int(inputs.shape[2]) // 32, num_anchors, num_classes + 5]), name='y1')(y1)
+    y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
+        feats, [-1, int(inputs.shape[1]) // 16, int(inputs.shape[2]) // 16, num_anchors, num_classes + 5]), name='y2')(y2)
+    y3 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
+        feats, [-1, int(inputs.shape[1]) // 8, int(inputs.shape[2]) // 8, num_anchors, num_classes + 5]), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1,y2,y3])
 
 def inception_block(filters, kernel):
@@ -192,7 +198,7 @@ def densenet_yolo_body(inputs, num_anchors, num_classes):
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 
-def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_shape: tf.Tensor,
+def yolo_head(feats: tf.Tensor, anchors: np.ndarray,input_shape: tf.Tensor,
               calc_loss: bool = False) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     """Convert final layer features to bounding box parameters."""
     num_anchors = len(anchors)
@@ -206,9 +212,6 @@ def yolo_head(feats: tf.Tensor, anchors: np.ndarray, num_classes: int, input_sha
                      [grid_shape[0], 1, 1, 1])
     grid = tf.concat([grid_x, grid_y], -1)
     grid = tf.cast(grid, feats.dtype)
-
-    feats = tf.reshape(
-        feats, [-1, grid_shape[0], grid_shape[1], num_anchors, num_classes + 5])
 
     # Adjust preditions to each spatial grid point and anchor size.
     box_xy = (tf.sigmoid(feats[..., :2]) + grid) / tf.cast(grid_shape[::-1], feats.dtype)
@@ -246,7 +249,7 @@ def yolo_boxes_and_scores(feats: tf.Tensor, anchors: List[Tuple[float, float]], 
                           input_shape: Tuple[int, int], image_shape) -> Tuple[tf.Tensor, tf.Tensor]:
     '''Process Conv layer output'''
     box_xy, box_wh, box_confidence, box_class_probs = yolo_head(feats,
-                                                                anchors, num_classes, input_shape)
+                                                                anchors, input_shape)
     boxes = yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape)
     boxes = tf.reshape(boxes, [-1, 4])
     box_scores = box_confidence * box_class_probs
@@ -460,7 +463,7 @@ def yolo_loss(yolo_outputs,y_true,input_shape, anchors, num_classes: int, ignore
     object_mask = y_true[..., 4:5]
     true_class_probs = y_true[..., 5:]
     grid, raw_pred, pred_xy, pred_wh = yolo_head(yolo_outputs,
-                                                 anchors[anchor_mask[idx]], num_classes, input_shape, calc_loss=True)
+                                                 anchors[anchor_mask[idx]], input_shape, calc_loss=True)
     pred_box = tf.concat([pred_xy, pred_wh], -1)
     # Find ignore mask, iterate over each of batch.
     ignore_mask = tf.TensorArray(y_true.dtype, size=1, dynamic_size=True)

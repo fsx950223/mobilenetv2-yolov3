@@ -124,7 +124,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
             pred_res[idx] = []
             for i in range(len(out_classes)):
                 pred_res[idx].append(
-                    [out_classes[i].numpy(), out_scores[i].numpy(), out_boxes[i].numpy()])
+                    np.concatenate([[out_classes[i].numpy(), out_scores[i].numpy()],out_boxes[i].numpy()]))
             true_res[idx]=[]
             for item in list(np.transpose(bbox)):
                 item[0]/int(image.shape[1])
@@ -146,8 +146,8 @@ class MAPCallback(tf.keras.callbacks.Callback):
                                      'difficult':[False]*len(objs),
                                      'det': [False] * len(objs)}
             ids = np.concatenate([[x]*len(pred_res[x]) for x in pred_res])
-            scores = np.concatenate([np.stack(pred_res[x])[:,1] for x in pred_res if len(pred_res[x])>0],0)
-            bboxs = np.concatenate([np.stack(pred_res[x])[:,2] for x in pred_res if len(pred_res[x])>0],0)
+            scores = np.concatenate([np.stack(pred_res[x])[:,1] for x in pred_res],0)
+            bboxs = np.concatenate([np.stack(pred_res[x])[:,2] for x in pred_res],0)
             sorted_ind = np.argsort(-scores)
             bboxs = bboxs[sorted_ind]
 

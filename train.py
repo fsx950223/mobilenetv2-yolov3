@@ -73,7 +73,7 @@ def _main():
     #with strategy.scope():
     if backbone == BACKBONE.MOBILENETV2:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=alpha,
-                                         freeze_body=1, weights_path=model_path)
+                                         freeze_body=10, weights_path=model_path)
         test_model=tf.keras.Model(model.input,model.layers[182].output)
         map.set_model(test_model)
     elif backbone == BACKBONE.DARKNET53:
@@ -208,14 +208,7 @@ def create_mobilenetv2_model(input_shape, anchors, num_classes, load_pretrained:
         num = (155, len(model_body.layers) - 3)[freeze_body - 1]
         for i in range(num): model_body.layers[i].trainable = False
         print('Freeze the first {} layers of total {} layers.'.format(num, len(model_body.layers)))
-    anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-    y1 = tf.keras.layers.Lambda(lambda output:[yolo_head(output, anchors[anchor_mask[0]], num_classes, input_shape, True)[1]],name='y1')(model_body.output[0])
-    y2 = tf.keras.layers.Lambda(
-        lambda output: [yolo_head(output, anchors[anchor_mask[1]], num_classes, input_shape, True)[1]],name='y2')(model_body.output[1])
-    y3 = tf.keras.layers.Lambda(
-        lambda output: [yolo_head(output, anchors[anchor_mask[2]], num_classes, input_shape, True)[1]],name='y3')(model_body.output[2])
-    model = tf.keras.models.Model(model_body.input, [y1,y2,y3])
-    return model
+    return model_body
 
 
 def create_inception_model(input_shape, anchors, num_classes, load_pretrained: bool = True,

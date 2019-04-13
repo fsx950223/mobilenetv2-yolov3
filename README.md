@@ -69,3 +69,15 @@ optional arguments:
 
 # Pascal Dataset
 I have packaged a pascal tfrecords for you.See [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF)
+
+# Reference:<br>
+paper: <br>
+- [YOLOv3: An Incremental Improvement](https://arxiv.org/abs/1804.02767)<br>
+- [Foca Loss for Dense Object Detection](https://arxiv.org/abs/1708.02002)<br>
+- [Group Normalization](https://arxiv.org/abs/1803.08494)<br>
+- [An Analysis of Scale Invariance in Object Detection - SNIP](https://arxiv.org/abs/1711.08189)<br>
+- [Scale-Aware Trident Networks for Object Detection](https://arxiv.org/abs/1901.01892)<br>
+- [Understanding the Effective Receptive Field in Deep Convolutional Neural Networks](https://arxiv.org/abs/1701.04128)<br>
+- [Bag of Freebies for Training Object Detection Neural Networks](https://arxiv.org/pdf/1902.04103.pdf)<br>
+- [Generalized Intersection over Union: A Metric and A Loss for Bounding Box Regression](https://arxiv.org/abs/1902.09630)<br>
+- [MobileNetV2: Inverted Residuals and Linear Bottlenecks](https://arxiv.org/abs/1801.04381)<br>
