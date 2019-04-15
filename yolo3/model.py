@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow as tf
 from typing import List, Tuple
 from yolo3.utils import compose
+from yolo3.override import mobilenet_v2
 
 @wraps(tf.keras.layers.Conv2D)
 def DarknetConv2D(*args, **kwargs):
@@ -80,7 +81,12 @@ def darknet_yolo_body(inputs, num_anchors, num_classes):
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()([x, darknet.layers[92].output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
-
+    y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
+        feats, [-1, int(inputs.shape[1]) // 32, int(inputs.shape[2]) // 32, num_anchors, num_classes + 5]), name='y1')(y1)
+    y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
+        feats, [-1, int(inputs.shape[1]) // 16, int(inputs.shape[2]) // 16, num_anchors, num_classes + 5]), name='y2')(y2)
+    y3 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
+        feats, [-1, int(inputs.shape[1]) // 8, int(inputs.shape[2]) // 8, num_anchors, num_classes + 5]), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 
@@ -92,33 +98,37 @@ def _make_divisible(v, divisor, min_value=None):
     if new_v < 0.9 * v:
         new_v += divisor
     return new_v
-# def make_last_layers_mobilenet():
-#     Separable_Conv
-# def Separable_Conv(x,prefix,stride,filters,alpha):
-#     pointwise_conv_filters = int(filters * alpha)
-#     pointwise_filters = _make_divisible(pointwise_conv_filters, 8)
-#     x = tf.keras.layers.DepthwiseConv2D(kernel_size=3,
-#                                strides=stride,
-#                                activation=None,
-#                                use_bias=False,
-#                                padding='same' if stride == 1 else 'valid',
-#                                name=prefix + 'depthwise')(x)
-#     x = tf.keras.layers.BatchNormalization(epsilon=1e-3,
-#                                   momentum=0.999,
-#                                   name=prefix + 'depthwise_BN')(x)
-#
-#     x = tf.keras.layers.ReLU(6., name=prefix + 'depthwise_relu')(x)
-#
-#     # Project
-#     x = tf.keras.layers.Conv2D(pointwise_filters,
-#                       kernel_size=1,
-#                       padding='same',
-#                       use_bias=False,
-#                       activation=None,
-#                       name=prefix + 'project')(x)
-#     x = tf.keras.layers.BatchNormalization(
-#         epsilon=1e-3, momentum=0.999, name=prefix + 'project_BN')(x)
-#     return x
+
+def make_last_layers_mobilenet(x,id, num_filters, out_filters):
+     x=Separable_Conv('block_'+str(id),(1,1),num_filters)(x)
+     x=Separable_Conv('block_'+str(id+1),(1,1),num_filters)(x)
+     y=Separable_Conv('block_'+str(id+2), (1, 1), num_filters)(x)
+     y=DarknetConv2D(out_filters, (1, 1))(y)
+     return x,y
+def Separable_Conv(prefix,stride,filters):
+    return compose(
+        tf.keras.layers.Conv2D(filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name=prefix + '_conv'),
+        tf.keras.layers.BatchNormalization(name=prefix + '_BN'),
+        tf.keras.layers.Lambda(tf.nn.relu6, name=prefix + '_relu6'),
+        tf.keras.layers.DepthwiseConv2D(kernel_size=(3,3),
+                                   strides=stride,
+                                   use_bias=False,
+                                   padding='same',
+                                   name=prefix + '_depthwise'),
+        tf.keras.layers.BatchNormalization(name=prefix + '_depthwise_BN'),
+        tf.keras.layers.Lambda(tf.nn.relu6,name=prefix + '_depthwise_relu6'),
+        tf.keras.layers.Conv2D(filters,
+                          kernel_size=1,
+                          padding='same',
+                          use_bias=False,
+                          name=prefix + '_project'),
+        tf.keras.layers.BatchNormalization(name=prefix + '_project_BN'),
+        tf.keras.layers.Lambda(tf.nn.relu6,name=prefix + '_project_relu6'))
+
 def MobilenetConv2D_BN_Relu(kernel,alpha, filters):
     last_block_filters = _make_divisible(filters * alpha, 8)
     return compose(tf.keras.layers.Conv2D(last_block_filters,
@@ -128,25 +138,39 @@ def MobilenetConv2D_BN_Relu(kernel,alpha, filters):
                    tf.keras.layers.ReLU(6.))
 
 def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
-    mobilenetv2 = tf.keras.applications.MobileNetV2(alpha=alpha, input_tensor=inputs, include_top=False,
+    mobilenetv2 = mobilenet_v2(True,alpha=alpha,input_tensor=inputs, include_top=False,
                                                     weights='imagenet')
-    x=mobilenetv2.output
-    y1 = MobilenetConv2D_BN_Relu((1,1),alpha, 1280)(x)
-    y1 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y1)
+    #x=mobilenetv2.output
+    x,y1=make_last_layers_mobilenet(mobilenetv2.output,17,512,num_anchors * (num_classes + 5))
     x = compose(
-        MobilenetConv2D_BN_Relu((1,1),alpha, 640),
+        Separable_Conv('block_20', (1, 1),256),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
-        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 640)(mobilenetv2.get_layer('block_12_project_BN').output)])
-    y2 = MobilenetConv2D_BN_Relu((1,1),alpha, 640)(x)
-    y2 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
+        [x, mobilenetv2.get_layer('block_13_expand_relu').output])
+    x, y2 = make_last_layers_mobilenet(x, 21, 256, num_anchors * (num_classes + 5))
     x = compose(
-        MobilenetConv2D_BN_Relu((1,1),alpha, 384),
+        Separable_Conv('block_24', (1, 1), 128),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
-        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 384)(mobilenetv2.get_layer('block_5_project_BN').output)])
-    y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 384)(x)
-    y3 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
+        [x, mobilenetv2.get_layer('block_6_expand_relu').output])
+    x, y3 = make_last_layers_mobilenet(x, 25,128, num_anchors * (num_classes + 5))
+    # y1 = MobilenetConv2D_BN_Relu((1,1),alpha, 1280)(x)
+    # y1 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y1)
+    # x = compose(
+    #     MobilenetConv2D_BN_Relu((1,1),alpha, 640),
+    #     tf.keras.layers.UpSampling2D(2))(x)
+    #
+    # x = tf.keras.layers.Concatenate()(
+    #     [x, mobilenetv2.get_layer('block_13_expand_relu').output])
+    # y2 = MobilenetConv2D_BN_Relu((1,1),alpha, 640)(x)
+    # y2 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
+    # x = compose(
+    #     MobilenetConv2D_BN_Relu((1,1),alpha, 384),
+    #     tf.keras.layers.UpSampling2D(2))(x)
+    # x = tf.keras.layers.Concatenate()(
+    #     [x, mobilenetv2.get_layer('block_6_expand_relu').output])
+    # y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 384)(x)
+    # y3 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
     y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
         feats, [-1, int(inputs.shape[1]) // 32, int(inputs.shape[2]) // 32, num_anchors, num_classes + 5]), name='y1')(y1)
     y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
@@ -217,7 +241,7 @@ def yolo_head(feats: tf.Tensor, anchors: np.ndarray,input_shape: tf.Tensor,
     box_xy = (tf.sigmoid(feats[..., :2]) + grid) / tf.cast(grid_shape[::-1], feats.dtype)
     box_wh = tf.exp(feats[..., 2:4]) * tf.cast(anchors_tensor, feats.dtype) / tf.cast(input_shape[::-1], feats.dtype)
     if calc_loss == True:
-        return grid, feats, box_xy, box_wh
+        return grid, box_xy, box_wh
     box_confidence = tf.sigmoid(feats[..., 4:5])
     box_class_probs = tf.sigmoid(feats[..., 5:])
     return box_xy, box_wh, box_confidence, box_class_probs
@@ -438,13 +462,13 @@ def box_giou(b1, b2):
     giou=iou-(enclose_area-union_area)/enclose_area
     return giou
 
-def yolo_loss(yolo_outputs,y_true,input_shape, anchors, num_classes: int, ignore_thresh: float = .5, box_loss=BOX_LOSS.GIOU,print_loss: bool = False):
+def yolo_loss(yolo_output,y_true,input_shape, anchors, num_classes: int, ignore_thresh: float = .5, box_loss=BOX_LOSS.GIOU,print_loss: bool = False):
     '''Return yolo_loss tensor
 
     Parameters
     ----------
-    yolo_outputs: list of tensor, the output of yolo_body or tiny_yolo_body
-    y_true: list of array, the output of preprocess_true_boxes
+    yolo_output: the output of yolo_body or tiny_yolo_body
+    y_true: the output of preprocess_true_boxes
     anchors: array, shape=(N, 2), wh
     num_classes: integer
     ignore_thresh: float, the iou threshold whether to ignore object confidence loss
@@ -455,14 +479,14 @@ def yolo_loss(yolo_outputs,y_true,input_shape, anchors, num_classes: int, ignore
 
     '''
     strides=[32,16,8]
-    idx=strides.index(input_shape[0] // int(yolo_outputs.shape[1]))
+    idx=strides.index(input_shape[0] // int(yolo_output.shape[1]))
     anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
     loss = 0
-    m = tf.shape(yolo_outputs)[0]  # batch size, tensor
-    mf = tf.cast(m, yolo_outputs.dtype)
+    m = tf.shape(yolo_output)[0]  # batch size, tensor
+    mf = tf.cast(m, yolo_output.dtype)
     object_mask = y_true[..., 4:5]
     true_class_probs = y_true[..., 5:]
-    grid, raw_pred, pred_xy, pred_wh = yolo_head(yolo_outputs,
+    grid, pred_xy, pred_wh = yolo_head(yolo_output,
                                                  anchors[anchor_mask[idx]], input_shape, calc_loss=True)
     pred_box = tf.concat([pred_xy, pred_wh], -1)
     # Find ignore mask, iterate over each of batch.
@@ -479,11 +503,11 @@ def yolo_loss(yolo_outputs,y_true,input_shape, anchors, num_classes: int, ignore
     ignore_mask = ignore_mask.stack()
     ignore_mask = tf.expand_dims(ignore_mask, -1)
     confidence_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
-                                                                            logits=raw_pred[..., 4:5]) + \
+                                                                            logits=yolo_output[..., 4:5]) + \
                       (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
-                                                                                  logits=raw_pred[...,4:5]) * ignore_mask
+                                                                                  logits=yolo_output[...,4:5]) * ignore_mask
     class_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=true_class_probs,
-                                                                       logits=raw_pred[..., 5:])
+                                                                       logits=yolo_output[..., 5:])
     confidence_loss = tf.reduce_sum(confidence_loss) / mf
     class_loss = tf.reduce_sum(class_loss) / mf
     if box_loss==BOX_LOSS.GIOU:
@@ -495,14 +519,14 @@ def yolo_loss(yolo_outputs,y_true,input_shape, anchors, num_classes: int, ignore
         if print_loss:
             tf.print(giou_loss,confidence_loss,class_loss)
     elif box_loss==BOX_LOSS.MSE:
-        grid_shape = tf.cast(tf.shape(yolo_outputs)[1:3], y_true.dtype)
+        grid_shape = tf.cast(tf.shape(yolo_output)[1:3], y_true.dtype)
         raw_true_xy = y_true[..., :2] * grid_shape[::-1] - grid
         raw_true_wh = tf.math.log(y_true[..., 2:4] / anchors[anchor_mask[l]] * input_shape[::-1])
         raw_true_wh = tf.keras.backend.switch(object_mask, raw_true_wh, tf.zeros_like(raw_true_wh))
         box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]
         xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels=raw_true_xy,
-                                                                                       logits=raw_pred[..., 0:2])
-        wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - raw_pred[..., 2:4])
+                                                                                       logits=yolo_output[..., 0:2])
+        wh_loss = object_mask * box_loss_scale * 0.5 * tf.square(raw_true_wh - yolo_output[..., 2:4])
         xy_loss = tf.reduce_sum(xy_loss) / mf
         wh_loss = tf.reduce_sum(wh_loss) / mf
         loss += xy_loss + wh_loss + confidence_loss + class_loss

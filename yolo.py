@@ -19,7 +19,7 @@ from tensorflow.python import debug as tf_debug
 
 if hasattr(tf,'enable_eager_execution'):
     tf.enable_eager_execution()
-gpus=""
+gpus="0"
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num=len(gpus.split(','))
 
@@ -28,8 +28,8 @@ class YOLO(object):
         "backbone":BACKBONE.MOBILENETV2,
         "model_config":{
             BACKBONE.MOBILENETV2:{
-                "input_size":(416,416),
-                "model_path": '../download/mobilenetv2_trained_weights_final (10).h5',
+                "input_size":(224,224),
+                "model_path": '../download/ep009-loss18.149-val_loss20.168.h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -254,8 +254,8 @@ class YOLO(object):
                                               self.anchors, num_classes)
         start = timer()
         for batch in test_dataset:
-            output = self.yolo_model.predict(batch)
-            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, len(self.class_names), batch[0:2],
+            outputs = self.yolo_model.predict(batch)
+            out_boxes, out_scores, out_classes = yolo_eval(outputs, self.anchors, len(self.class_names), batch[0:2],
                                                            score_threshold=self.score, iou_threshold=self.nms)
             with TemporaryFile('w+t') as f:
                 f.write(str(out_boxes)+' '+str(out_scores)+' '+str(out_classes)+'\n')

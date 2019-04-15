@@ -121,16 +121,17 @@ class MAPCallback(tf.keras.callbacks.Callback):
             output = self.model.predict(image_data)
             out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image_shape[0:2],
                                                            score_threshold=self.score, iou_threshold=self.nms)
-            pred_res[idx] = []
-            for i in range(len(out_classes)):
-                pred_res[idx].append(
-                    np.concatenate([[out_classes[i].numpy(), out_scores[i].numpy()],out_boxes[i].numpy()]))
+            if len(out_classes)>0:
+                pred_res[idx] = []
+                for i in range(len(out_classes)):
+                    pred_res[idx].append(
+                        np.concatenate([[out_classes[i].numpy(), out_scores[i].numpy()],out_boxes[i].numpy()]))
             true_res[idx]=[]
             for item in list(np.transpose(bbox)):
-                item[0]/int(image.shape[1])
-                item[2] / int(image.shape[1])
-                item[1] / int(image.shape[0])
-                item[3] / int(image.shape[0])
+                item[0] /=int(image.shape[1])
+                item[2] /=int(image.shape[1])
+                item[1] /=int(image.shape[0])
+                item[3] /=int(image.shape[0])
                 true_res[idx].append(item)
             idx+=1
         end=timer()
@@ -146,8 +147,8 @@ class MAPCallback(tf.keras.callbacks.Callback):
                                      'difficult':[False]*len(objs),
                                      'det': [False] * len(objs)}
             ids = np.concatenate([[x]*len(pred_res[x]) for x in pred_res])
-            scores = np.concatenate([np.stack(pred_res[x])[:,1] for x in pred_res],0)
-            bboxs = np.concatenate([np.stack(pred_res[x])[:,2] for x in pred_res],0)
+            scores = np.array([pred_res[x][:,1] for x in pred_res],0)
+            bboxs = np.array([pred_res[x][:,2:] for x in pred_res],0)
             sorted_ind = np.argsort(-scores)
             bboxs = bboxs[sorted_ind]
 

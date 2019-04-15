@@ -75,7 +75,7 @@ def text_dataset(files: List[str],batch_size: int, input_shape: Tuple[int, int],
             image = tf.image.decode_jpeg(tf.io.read_file(values[0]), channels=3)
             image = tf.image.convert_image_dtype(image, tf.float32)
             xmin,xmax,ymin,ymax,label=tf.py_function(get_data,[values[1:]],[tf.float32, tf.float32, tf.float32,tf.float32, tf.float32])
-            image, bbox = get_random_data(tf.io.read_file(values[0]),xmin,xmax,ymin,ymax,label,input_shape, train=train)
+            image, bbox = get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape, train=train)
             y1, y2, y3 = tf.py_function(preprocess_true_boxes, [bbox, input_shape, anchors, num_classes],
                                         [tf.float32, tf.float32, tf.float32])
             return image, (y1, y2, y3)

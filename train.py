@@ -26,9 +26,9 @@ def _main():
     backbone = BACKBONE.MOBILENETV2
     log_dir = 'logs/'+str(backbone).split('.')[1].lower()+str(datetime.date.today())
     batch_size = 4
-    train_dataset_path = '../pascal/VOCdevkit/train'
+    train_dataset_path = './'
     val_dataset_path = '../pascal/VOCdevkit/val'
-    train_dataset_glob='*2007*.tfrecords'
+    train_dataset_glob='cci_1_VOC2007_1000.txt'
     val_dataset_glob='*2007*.tfrecords'
     model_config = {
         BACKBONE.MOBILENETV2: {
@@ -74,8 +74,6 @@ def _main():
     if backbone == BACKBONE.MOBILENETV2:
         model = create_mobilenetv2_model(input_shape, anchors, num_classes, False, alpha=alpha,
                                          freeze_body=10, weights_path=model_path)
-        test_model=tf.keras.Model(model.input,model.layers[182].output)
-        map.set_model(test_model)
     elif backbone == BACKBONE.DARKNET53:
         model = create_darknet_model(input_shape, anchors, num_classes,
                                      freeze_body=1,
@@ -97,8 +95,6 @@ def _main():
         sess=tf.Session(config=config)
         tf.keras.backend.set_session(sess)
 
-
-
     logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir,write_grads=True,write_images=True)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(log_dir,'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
                                                     monitor='val_loss', save_weights_only=True, save_best_only=True,
@@ -119,7 +115,7 @@ def _main():
         model.fit(train_dataset,
                   epochs=10, initial_epoch=0,
                   steps_per_epoch=max(1, train_num// batch_size),
-                  callbacks=[logging, checkpoint,map],
+                  callbacks=[logging, checkpoint],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num// batch_size))
         model.save_weights(os.path.join(log_dir,str(backbone).split('.')[1].lower() + '_trained_weights_stage_1.h5'))
@@ -136,7 +132,7 @@ def _main():
         print('Unfreeze all of the layers.')
         model.fit(train_dataset,
                   epochs=20, initial_epoch=10, steps_per_epoch=max(1, train_num // batch_size),
-                  callbacks=[checkpoint, reduce_lr, early_stopping,map],
+                  callbacks=[checkpoint, reduce_lr, early_stopping],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num // batch_size))
         model.save_weights(os.path.join(log_dir,str(backbone).split('.')[1].lower() + '_trained_weights_final.h5'))
@@ -178,19 +174,7 @@ def create_darknet_model(input_shape: Tuple[int, int], anchors: List[List[float]
         num = (185, len(model_body.layers) - 3)[freeze_body - 1]
         for i in range(num): model_body.layers[i].trainable = False
         print('Freeze the first {} layers of total {} layers.'.format(num, len(model_body.layers)))
-    anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-    y1 = tf.keras.layers.Lambda(
-        lambda output: [yolo_head(output, anchors[anchor_mask[0]], num_classes, input_shape, True)[1]], name='y1')(
-        model_body.output[0])
-    y2 = tf.keras.layers.Lambda(
-        lambda output: [yolo_head(output, anchors[anchor_mask[1]], num_classes, input_shape, True)[1]], name='y2')(
-        model_body.output[1])
-    y3 = tf.keras.layers.Lambda(
-        lambda output: [yolo_head(output, anchors[anchor_mask[2]], num_classes, input_shape, True)[1]], name='y3')(
-        model_body.output[2])
-    model = tf.keras.models.Model(model_body.input, [y1, y2, y3])
-    return model
-
+    return model_body
 
 def create_mobilenetv2_model(input_shape, anchors, num_classes, load_pretrained: bool = True,
                              freeze_body: int = 2, alpha: float = 1.0,
@@ -209,7 +193,6 @@ def create_mobilenetv2_model(input_shape, anchors, num_classes, load_pretrained:
         for i in range(num): model_body.layers[i].trainable = False
         print('Freeze the first {} layers of total {} layers.'.format(num, len(model_body.layers)))
     return model_body
-
 
 def create_inception_model(input_shape, anchors, num_classes, load_pretrained: bool = True,
                            freeze_body: int = 2,
