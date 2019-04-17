@@ -22,6 +22,8 @@ Tensorflow:
 - [ ] Remove image shape input when use session
 - [ ] Convert model to tensorflow lite model
 - [ ] Multi GPU training support
+- [ ] Tensorflow Serving JAVA Client
+- [ ] Tensorflow Serving Server Build and Plugins develop 
 
 # Requirement
 Tensorflow-1.13+
