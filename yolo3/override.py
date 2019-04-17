@@ -120,7 +120,7 @@ class _LayersOverride:
         self._alpha=alpha
         self._min_depth=min_depth
         self._regularizer=tf.keras.regularizers.l2(0.00004*0.5)
-        self._initializer=tf.truncated_normal_initializer(stddev=0.09)
+        self._initializer=tf.keras.initializers.TruncatedNormal(stddev=0.09)
 
     def _FixedPaddingLayer(self,kernel_size):
         return tf.keras.layers.Lambda(lambda x: _fixed_padding(x, kernel_size))
@@ -278,8 +278,7 @@ class _LayersOverride:
     def __getattr__(self, item):
         return getattr(tf.keras.layers, item)
 
-def mobilenet_v2(batchnorm_training,
-                 default_batchnorm_momentum=0.9997,
+def mobilenet_v2(default_batchnorm_momentum=0.9997,
                  conv_hyperparams=None,
                  use_explicit_padding=False,
                  alpha=1.0,
