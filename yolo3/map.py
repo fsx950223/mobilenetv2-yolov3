@@ -23,20 +23,20 @@ class MAPCallback(tf.keras.callbacks.Callback):
                     'image/object/bbox/label': tf.io.VarLenFeature(tf.int64)
                 }
                 features = tf.io.parse_single_example(example_proto, feature_description)
-
+                image = tf.image.decode_image(features['image/encoded'])
+                image = tf.image.convert_image_dtype(image, tf.float32)
                 xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
                 xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
                 ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
                 ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
                 label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
                 bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
-                image = tf.image.decode_image(features['image/encoded'])
-                image = tf.image.convert_image_dtype(image, tf.float32)
+
                 return image, bbox
 
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
-                cycle_length=len(files), num_parallel_calls=AUTOTUNE).map(parse, num_parallel_calls=AUTOTUNE)
+                cycle_length=len(files)).map(parse)
 
             return dataset
     """
@@ -46,55 +46,31 @@ class MAPCallback(tf.keras.callbacks.Callback):
         2nd) We compute the AP as the area under this curve by numerical integration.
     """
     def _voc_ap(self,rec, prec):
-        """
-        --- Official matlab code VOC2012---
-        mrec=[0 ; rec ; 1];
-        mpre=[0 ; prec ; 0];
-        for i=numel(mpre)-1:-1:1
-                mpre(i)=max(mpre(i),mpre(i+1));
-        end
-        i=find(mrec(2:end)~=mrec(1:end-1))+1;
-        ap=sum((mrec(i)-mrec(i-1)).*mpre(i));
-        """
+        # correct AP calculation
+        # first append sentinel values at the end
         mrec = np.concatenate(([0.], rec, [1.]))
         mpre = np.concatenate(([0.], prec, [0.]))
-        """
-         This part makes the precision monotonically decreasing
-            (goes from the end to the beginning)
-            matlab: for i=numel(mpre)-1:-1:1
-                        mpre(i)=max(mpre(i),mpre(i+1));
-        """
-        # matlab indexes start in 1 but python in 0, so I have to do:
-        #     range(start=(len(mpre) - 2), end=0, step=-1)
-        # also the python function range excludes the end, resulting in:
-        #     range(start=(len(mpre) - 2), end=-1, step=-1)
-        for i in range(len(mpre) - 2, -1, -1):
-            mpre[i] = max(mpre[i], mpre[i + 1])
-        """
-         This part creates a list of indexes where the recall changes
-            matlab: i=find(mrec(2:end)~=mrec(1:end-1))+1;
-        """
-        i_list = []
-        for i in range(1, len(mrec)):
-            if mrec[i] != mrec[i - 1]:
-                i_list.append(i)  # if it was matlab would be i + 1
-        """
-         The Average Precision (AP) is the area under the curve
-            (numerical integration)
-            matlab: ap=sum((mrec(i)-mrec(i-1)).*mpre(i));
-        """
-        ap = 0.0
-        for i in i_list:
-            ap += ((mrec[i] - mrec[i - 1]) * mpre[i])
+
+        # compute the precision envelope
+        for i in range(mpre.size - 1, 0, -1):
+            mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
+
+        # to calculate area under PR curve, look for points
+        # where X axis (recall) changes value
+        i = np.where(mrec[1:] != mrec[:-1])[0]
+
+        # and sum (\Delta recall) * prec
+        ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
         return ap
 
-    def __init__(self,glob_path,input_shape,anchors,num_classes,minoverlap=0.5,score=.5,nms=.5):
+    def __init__(self,glob_path,input_shape,anchors,class_names,score=.5,iou=.5,nms=.5):
         self.input_shape=input_shape
         self.anchors = anchors
-        self.num_classes = num_classes
+        self.class_names=class_names
+        self.num_classes = len(class_names)
         self.glob_path=glob_path
-        self.minoverlap=minoverlap
         self.score=score
+        self.iou=iou
         self.nms=nms
 
     def on_train_end(self, logs={}):
@@ -103,11 +79,11 @@ class MAPCallback(tf.keras.callbacks.Callback):
         test_num = reduce(lambda x, y: x + y, map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
         test_dataset = self.tfrecord_dataset(files)
         true_res={}
-        pred_res={}
+        pred_res=[]
         idx=0
         APs={}
         start=timer()
-        for image,bbox in test_dataset.take(100):
+        for image,bbox in test_dataset:
             if self.input_shape != (None, None):
                 assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
                 assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
@@ -122,65 +98,86 @@ class MAPCallback(tf.keras.callbacks.Callback):
             out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image_shape[0:2],
                                                            score_threshold=self.score, iou_threshold=self.nms)
             if len(out_classes)>0:
-                pred_res[idx] = []
                 for i in range(len(out_classes)):
-                    pred_res[idx].append(
-                        np.concatenate([[out_classes[i].numpy(), out_scores[i].numpy()],out_boxes[i].numpy()]))
+                    w=int(image.shape[1])
+                    h=int(image.shape[0])
+                    top, left, bottom, right=out_boxes[i].numpy()*([h,w]*2)
+                    top = max(0, np.floor(top + 0.5).astype('int32'))
+                    left = max(0, np.floor(left + 0.5).astype('int32'))
+                    bottom = min(h, np.floor(bottom + 0.5).astype('int32'))
+                    right = min(w, np.floor(right + 0.5).astype('int32'))
+                    pred_res.append([idx,out_classes[i].numpy(), out_scores[i].numpy(),left,top,right,bottom])
             true_res[idx]=[]
             for item in list(np.transpose(bbox)):
-                item[0] /=int(image.shape[1])
-                item[2] /=int(image.shape[1])
-                item[1] /=int(image.shape[0])
-                item[3] /=int(image.shape[0])
                 true_res[idx].append(item)
             idx+=1
         end=timer()
         print((end-start)/test_num)
         for cls in range(self.num_classes):
+            pred_res_cls=[x for x in pred_res if x[1]==cls]
+            if len(pred_res_cls)==0:
+                continue
             true_res_cls={}
+            npos=0
             for index in true_res:
-                objs = []
-                for res in true_res[index]:
-                    if res[4]==cls:
-                        objs.append(res)
-                true_res_cls[index]={'bbox':objs,
+                objs=[obj for obj in true_res[index] if obj[4] == cls]
+                npos+=len(objs)
+                bbox = np.array([x[:4] for x in objs])
+                true_res_cls[index]={'bbox':bbox,
                                      'difficult':[False]*len(objs),
                                      'det': [False] * len(objs)}
-            ids = np.concatenate([[x]*len(pred_res[x]) for x in pred_res])
-            scores = np.array([pred_res[x][:,1] for x in pred_res],0)
-            bboxs = np.array([pred_res[x][:,2:] for x in pred_res],0)
+            ids = [x[0] for x in pred_res_cls]
+            scores = np.array([x[2] for x in pred_res_cls])
+            bboxs = np.array([x[3:] for x in pred_res_cls])
             sorted_ind = np.argsort(-scores)
-            bboxs = bboxs[sorted_ind]
-
+            bboxs = bboxs[sorted_ind,:]
             ids = [ids[x] for x in sorted_ind]
-            tp = [0]*len(ids)
-            fp = [0]*len(ids)
-            for j in range(len(ids)):
+
+            nd = len(ids)
+            tp = np.zeros(nd)
+            fp = np.zeros(nd)
+            for j in range(nd):
                 res=true_res_cls[ids[j]]
-                bbox = bboxs[j].astype(float)
+                bbox = bboxs[j,:].astype(float)
                 ovmax = -np.inf
-                BBGT = np.array(res['bbox'])
+                BBGT = res['bbox'].astype(float)
                 if BBGT.size > 0:
-                    iou=box_iou(bbox,BBGT)
-                    ovmax = np.max(iou)
-                    jmax = np.argmax(iou)
-                if ovmax > self.minoverlap:
+                    ixmin = np.maximum(BBGT[:, 0], bbox[0])
+                    iymin = np.maximum(BBGT[:, 1], bbox[1])
+                    ixmax = np.minimum(BBGT[:, 2], bbox[2])
+                    iymax = np.minimum(BBGT[:, 3], bbox[3])
+                    iw = np.maximum(ixmax - ixmin + 1., 0.)
+                    ih = np.maximum(iymax - iymin + 1., 0.)
+                    inters = iw * ih
+
+                    # union
+                    uni = ((bbox[2] - bbox[0] + 1.) * (bbox[3] - bbox[1] + 1.) +
+                           (BBGT[:, 2] - BBGT[:, 0] + 1.) *
+                           (BBGT[:, 3] - BBGT[:, 1] + 1.) - inters)
+
+                    overlaps = inters / uni
+                    ovmax = np.max(overlaps)
+                    jmax = np.argmax(overlaps)
+                if ovmax > self.iou:
                     if not res['difficult'][jmax]:
                         if not res['det'][jmax]:
                              tp[j] = 1.
                              res['det'][jmax] = 1
-                    else:
-                         fp[j] = 1.
+                        else:
+                             fp[j] = 1.
                 else:
                     fp[j] = 1.
 
             fp = np.cumsum(fp)
             tp = np.cumsum(tp)
-            rec = tp / float(len(ids))
+            rec = tp / np.maximum(float(npos), np.finfo(np.float64).eps)
             prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
             ap = self._voc_ap(rec, prec)
             APs[cls]=ap
+        for cls in range(self.num_classes):
+            if cls in APs:
+                print(self.class_names[cls]+' ap: ',APs[cls])
         mAP = np.mean([APs[cls] for cls in APs])
-        print(mAP)
+        print('mAP: ',mAP)
         logs['mAP']=mAP
 
