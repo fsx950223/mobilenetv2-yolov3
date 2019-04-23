@@ -110,3 +110,5 @@ ENV/
 
 *.txt
 *.html
+
+export_model
