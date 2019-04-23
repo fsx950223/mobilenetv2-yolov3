@@ -5,14 +5,13 @@ Class definition of YOLO_v3 style detection model on image and video
 
 import colorsys
 from timeit import default_timer as timer
-from tempfile import TemporaryFile
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
 from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,inception_yolo_body,densenet_yolo_body
 from yolo3.utils import letterbox_image
 from yolo3.enum import OPT,BACKBONE
-from yolo3.data import auto_dataset
+from yolo3.map import MAPCallback
 import os
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
@@ -29,7 +28,7 @@ class YOLO(object):
         "model_config":{
             BACKBONE.MOBILENETV2:{
                 "input_size":(224,224),
-                "model_path": '../download/ep009-loss18.149-val_loss20.168.h5',
+                "model_path": '../download/mobilenetv2_trained_weights_final (16).h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -118,10 +117,21 @@ class YOLO(object):
             self.yolo_model = tf.keras.models.load_model(model_path, compile=False)
         except:
             if self.backbone==BACKBONE.MOBILENETV2:
-                self.yolo_model = mobilenetv2_yolo_body(
-                    tf.keras.layers.Input(shape=(*self.input_shape, 3), name='predict_image'),
-                    num_anchors // 3,
-                    num_classes, self.alpha)
+                if tf.executing_eagerly():
+                    self.yolo_model = mobilenetv2_yolo_body(
+                        tf.keras.layers.Input(shape=(*self.input_shape, 3), name='predict_image'),
+                        num_anchors // 3,
+                        num_classes, self.alpha)
+                else:
+                    self.input=tf.keras.layers.Input(shape=(None,None, 3), name='predict_image')
+                    image,shape=letterbox_image(self.input,self.input_shape)
+                    self.input_image_shape=shape[1:3]
+                    image=tf.reshape(image,[-1,*self.input_shape,3])
+                    self.yolo_model = mobilenetv2_yolo_body(
+                        image,
+                        num_anchors // 3,
+                        num_classes, self.alpha)
+
             elif self.backbone==BACKBONE.DARKNET53:
                 self.yolo_model = darknet_yolo_body(tf.keras.layers.Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
             elif self.backbone == BACKBONE.DENSENET:
@@ -150,60 +160,55 @@ class YOLO(object):
         if gpu_num >= 2:
             self.yolo_model = tf.keras.utils.multi_gpu_model(self.yolo_model, gpus=gpu_num)
         if tf.executing_eagerly() is not True:
-            self.input_image_shape = tf.placeholder(tf.float32, shape=(2,),name="image_size")
             boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
                                                len(self.class_names), self.input_image_shape,
                                                score_threshold=self.score, iou_threshold=self.nms)
             return boxes, scores, classes
 
     def export_serving_model(self, path: str) -> None:
+        # signature_def_map = {
+        #     tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+        #         tf.saved_model.signature_def_utils.predict_signature_def({
+        #         'predict_image:0': self.yolo_model.input
+        #     }, {t.name: t for t in [self.boxes, self.scores, self.classes]})
+        # }
+        # tf.saved_model.experimental.save(self.yolo_model,path,signature_def_map)
         tf.saved_model.simple_save(
             self.sess,
             path,
             inputs={
-                'predict_image:0': self.yolo_model.input,
-                'image_size:0': self.input_image_shape
+                'predict_image:0': self.input
             },
             outputs={t.name: t for t in [self.boxes, self.scores, self.classes]})
 
     def detect_image(self, image) -> Image:
         if tf.executing_eagerly():
+            image_data = tf.expand_dims(image, 0)
             if self.input_shape != (None, None):
                 assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
                 assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
-                boxed_image, image_shape = letterbox_image(image, tuple(
+                boxed_image, image_shape = letterbox_image(image_data, tuple(
                     reversed(self.input_shape)))
             else:
-                height, width, _ = image.shape
+                height, width, _ = image_data.shape
                 new_image_size = (width - (width % 32), height - (height % 32))
-                boxed_image, image_shape = letterbox_image(image, new_image_size)
-            image_data = np.expand_dims(boxed_image, 0)
+                boxed_image, image_shape = letterbox_image(image_data, new_image_size)
+            image_data = np.array(boxed_image)
             start = timer()
             output=self.yolo_model.predict(image_data)
-            out_boxes, out_scores, out_classes=yolo_eval(output,self.anchors,len(self.class_names),image_shape[0:2],
+            out_boxes, out_scores, out_classes=yolo_eval(output,self.anchors,len(self.class_names),image_shape[1:3],
                     score_threshold=self.score, iou_threshold=self.nms)
             end = timer()
             image = Image.fromarray((np.array(image) * 255).astype('uint8'), 'RGB')
         else:
-            size=self.input_shape
-            iw, ih = image.size
-            w, h = size
-            scale = min(w / iw, h / ih)
-            nw = int(iw * scale)
-            nh = int(ih * scale)
-
-            resized_image = image.resize((nw, nh), Image.BILINEAR)
-            new_image = Image.new('RGB', size, (128, 128, 128))
-            new_image.paste(resized_image, ((w - nw) // 2, (h - nh) // 2))
-            image_data=np.array(new_image,dtype='float32')
+            image_data=np.array(image,dtype='float32')
             image_data/=255.
             image_data=np.expand_dims(image_data,0)
             start = timer()
             out_boxes, out_scores, out_classes = self.sess.run(
                 [self.boxes, self.scores, self.classes],
                 feed_dict={
-                    "predict_image:0": image_data,
-                    "image_size:0":tuple(reversed(resized_image.size))
+                    "predict_image:0": image_data
                 })
             end = timer()
 
@@ -249,41 +254,34 @@ class YOLO(object):
         return image
 
     def calculate_map(self,glob):
-        num_classes = len(self.class_names)
-        test_dataset, test_num = auto_dataset(glob, 1, self.input_shape,
-                                              self.anchors, num_classes)
-        start = timer()
-        for batch in test_dataset:
-            outputs = self.yolo_model.predict(batch)
-            out_boxes, out_scores, out_classes = yolo_eval(outputs, self.anchors, len(self.class_names), batch[0:2],
-                                                           score_threshold=self.score, iou_threshold=self.nms)
-            with TemporaryFile('w+t') as f:
-                f.write(str(out_boxes)+' '+str(out_scores)+' '+str(out_classes)+'\n')
-        end = timer()
-        print('Test number: '+test_num,end-start)
+        def parse_fn(example_proto):
+            feature_description = {
+                'image/encoded': tf.io.FixedLenFeature([], tf.string),
+                'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+                'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+                'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+                'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
+                'image/object/bbox/label': tf.io.VarLenFeature(tf.int64)
+            }
+            features = tf.io.parse_single_example(example_proto, feature_description)
+            image = tf.image.decode_image(features['image/encoded'],channels=3,dtype=tf.float32)
+            image.set_shape([None, None, 3])
+            xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
+            xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
+            ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
+            ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
+            label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
+            bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
 
-    def detect_image_test(self, image):
-
-        if self.input_shape != (None, None):
-            assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
-            assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
-            boxed_image = letterbox_image(image, tuple(reversed(self.input_shape)))
-        else:
-            new_image_size = (image.width - (image.width % 32),
-                              image.height - (image.height % 32))
-            boxed_image = letterbox_image(image, new_image_size)
-        image_data = np.array(boxed_image, dtype='float32')
-
-        image_data /= 255.
-        image_data = np.expand_dims(image_data, 0)  # Add batch dimension.
-        out_boxes, out_scores, out_classes = self.sess.run(
-            [self.boxes, self.scores, self.classes],
-            feed_dict={
-                self.yolo_model.input: image_data,
-                self.input_image_shape: [image.size[1], image.size[0]]
-            })
-
-        return out_boxes, out_scores, reversed(list(enumerate(out_classes)))
+            return image, bbox
+        map = MAPCallback(glob, self.input_shape, self.anchors, self.class_names, parse_fn, score=0)
+        map.set_model(self.yolo_model)
+        APs = self.calculate_aps()
+        for cls in range(self.num_classes):
+            if cls in APs:
+                print(self.class_names[cls] + ' ap: ', APs[cls])
+        mAP = np.mean([APs[cls] for cls in APs])
+        print('mAP: ', mAP)
 
     def close_session(self):
         self.sess.close()
