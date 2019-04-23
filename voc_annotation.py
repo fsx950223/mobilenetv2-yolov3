@@ -25,7 +25,8 @@ def convert_to_tfrecord(xml, record_writer):
         xmaxs.append(float(xmlbox.find('xmax').text))
         ymaxs.append(float(xmlbox.find('ymax').text))
         labels.append(int(cls_id))
-    image_data=tf.io.read_file(tf.io.gfile.glob('%s/%s/**/%s.jp*g' % (clazz, file, name))[0]).read()
+
+    image_data=tf.io.read_file(tf.io.gfile.glob('%s/%s/**/%s.jp*g' % (clazz, file, name))[0],'rb')
     example = tf.train.Example(features=tf.train.Features(feature={
         'image/encoded': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image_data])),
         'image/object/bbox/xmin': tf.train.Feature(float_list=tf.train.FloatList(value=xmins)),
