@@ -17,12 +17,13 @@ def compose(*funcs):
 
 def letterbox_image(image, size):
     '''resize image with unchanged aspect ratio using padding'''
-    iw, ih = tf.cast(tf.shape(image)[1], tf.int32), tf.cast(tf.shape(image)[0], tf.int32)
+    iw, ih = tf.cast(tf.shape(image)[2], tf.int32), tf.cast(tf.shape(image)[1], tf.int32)
     w, h = tf.cast(size[1], tf.int32), tf.cast(size[0], tf.int32)
     nh = tf.cast(tf.cast(ih,tf.float64) * tf.minimum(w / iw, h / ih),tf.int32)
     nw = tf.cast(tf.cast(iw,tf.float64) * tf.minimum(w / iw, h / ih),tf.int32)
     dx = (w - nw) // 2
     dy = (h - nh) // 2
+
     image = tf.image.resize(image, [nh, nw])
     new_image = tf.image.pad_to_bounding_box(image, dy, dx, h, w)
     image_color_padded = tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
@@ -39,7 +40,7 @@ def random_blur(image):
     image.set_shape([h, w, 3])
     return image
 
-def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.5,max_scale=1.5, jitter = .3,min_gamma=0.6,max_gamma=4,blur=False,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=100,max_jpeg_quality=100, train:bool=True):
+def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,max_scale=2, jitter = .3,min_gamma=0.6,max_gamma=4,blur=False,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
 
     iw, ih = tf.cast(tf.shape(image)[1], tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
@@ -118,4 +119,5 @@ def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.5,ma
     bbox_h = bbox[..., 3] - bbox[..., 1]
     bbox = tf.boolean_mask(bbox, tf.logical_and(bbox_w > 1, bbox_h > 1))
     bbox = tf.cond(tf.greater(tf.shape(bbox)[0], max_boxes), lambda: bbox[:max_boxes], lambda: bbox)
+
     return image, bbox
