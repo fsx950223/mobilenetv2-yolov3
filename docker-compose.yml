@@ -1,0 +1,8 @@
+versiom: '3'
+services:
+  serving:
+    image: "tensorflow/serving:1.13.0"
+    ports:
+      - "8500:8500"
+    volumes:
+      - "~/export_model:/models/detection"
