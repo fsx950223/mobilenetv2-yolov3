@@ -82,11 +82,11 @@ def darknet_yolo_body(inputs, num_anchors, num_classes):
     x = tf.keras.layers.Concatenate()([x, darknet.layers[92].output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
     y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, [-1, int(inputs.shape[1]) // 32, int(inputs.shape[2]) // 32, num_anchors, num_classes + 5]), name='y1')(y1)
+        feats, [-1, int(inputs.shape[1]) // 32, int(inputs.shape[2]) // 32, num_anchors, num_classes + 5]), output_shape=(1,),name='y1')(y1)
     y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, [-1, int(inputs.shape[1]) // 16, int(inputs.shape[2]) // 16, num_anchors, num_classes + 5]), name='y2')(y2)
+        feats, [-1, int(inputs.shape[1]) // 16, int(inputs.shape[2]) // 16, num_anchors, num_classes + 5]), output_shape=(1,),name='y2')(y2)
     y3 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, [-1, int(inputs.shape[1]) // 8, int(inputs.shape[2]) // 8, num_anchors, num_classes + 5]), name='y3')(y3)
+        feats, [-1, int(inputs.shape[1]) // 8, int(inputs.shape[2]) // 8, num_anchors, num_classes + 5]), output_shape=(1,),name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 
@@ -99,84 +99,103 @@ def _make_divisible(v, divisor, min_value=None):
         new_v += divisor
     return new_v
 
-def make_last_layers_mobilenet(x,id, num_filters, out_filters):
-     x=Separable_Conv('block_'+str(id),(1,1),num_filters)(x)
-     x=Separable_Conv('block_'+str(id+1),(1,1),num_filters)(x)
-     y=Separable_Conv('block_'+str(id+2), (1, 1), num_filters)(x)
-     y=DarknetConv2D(out_filters, (1, 1))(y)
-     return x,y
-def Separable_Conv(prefix,stride,filters):
+def SeparableConv2D(
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               use_bias=True):
     return compose(
-        tf.keras.layers.Conv2D(filters,
+        tf.keras.layers.DepthwiseConv2D(
+            kernel_size,
+            padding=padding,
+            use_bias=use_bias,
+            strides=strides),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.ReLU(6.),
+        tf.keras.layers.Conv2D(filters, 1,
+          padding='same',
+          use_bias=use_bias,
+          strides=1),
+        tf.keras.layers.BatchNormalization(),
+        tf.keras.layers.ReLU(6.))
+
+def make_last_layers_mobilenet(x,id, num_filters, out_filters):
+    x=compose(
+        tf.keras.layers.Conv2D(num_filters,
                                kernel_size=1,
                                padding='same',
                                use_bias=False,
-                               name=prefix + '_conv'),
-        tf.keras.layers.BatchNormalization(name=prefix + '_BN'),
-        tf.keras.layers.Lambda(tf.nn.relu6, name=prefix + '_relu6'),
-        tf.keras.layers.DepthwiseConv2D(kernel_size=(3,3),
-                                   strides=stride,
-                                   use_bias=False,
-                                   padding='same',
-                                   name=prefix + '_depthwise'),
-        tf.keras.layers.BatchNormalization(name=prefix + '_depthwise_BN'),
-        tf.keras.layers.Lambda(tf.nn.relu6,name=prefix + '_depthwise_relu6'),
-        tf.keras.layers.Conv2D(filters,
-                          kernel_size=1,
-                          padding='same',
-                          use_bias=False,
-                          name=prefix + '_project'),
-        tf.keras.layers.BatchNormalization(name=prefix + '_project_BN'),
-        tf.keras.layers.Lambda(tf.nn.relu6,name=prefix + '_project_relu6'))
+                               name='block_'+str(id) + '_conv'),
+        tf.keras.layers.BatchNormalization(name='block_'+str(id) + '_BN'),
+        tf.keras.layers.ReLU(6., name='block_'+str(id) + '_relu6'),
+        SeparableConv2D(2 * num_filters, kernel_size=(3, 3), use_bias=False,padding='same'),
+        tf.keras.layers.Conv2D(num_filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name='block_'+str(id+1) + '_conv'),
+        tf.keras.layers.BatchNormalization(name='block_'+str(id+1) + '_BN'),
+        tf.keras.layers.ReLU(6., name='block_'+str(id+1) + '_relu6'),
+        SeparableConv2D(2 * num_filters, kernel_size=(3, 3), use_bias=False,padding='same'),
+        tf.keras.layers.Conv2D(num_filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name='block_'+str(id+2) + '_conv'),
+        tf.keras.layers.BatchNormalization(name='block_'+str(id+2) + '_BN'),
+        tf.keras.layers.ReLU(6., name='block_'+str(id+2) + '_relu6'))(x)
+    y=compose(SeparableConv2D(2 * num_filters, kernel_size=(3, 3), use_bias=False,padding='same'),
+              tf.keras.layers.Conv2D(out_filters,
+                                     kernel_size=1,
+                                     padding='same',
+                                     use_bias=False))(x)
+    return x,y
 
 def MobilenetConv2D_BN_Relu(kernel,alpha, filters):
     last_block_filters = _make_divisible(filters * alpha, 8)
     return compose(tf.keras.layers.Conv2D(last_block_filters,
                                           kernel,
+                                          padding='same',
                                           use_bias=False),
-                   tf.keras.layers.BatchNormalization(epsilon=1e-3, momentum=0.999),
+                   tf.keras.layers.BatchNormalization(),
                    tf.keras.layers.ReLU(6.))
 
 def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
-    mobilenetv2 = mobilenet_v2(True,alpha=alpha,input_tensor=inputs, include_top=False,
+    mobilenetv2 = mobilenet_v2(alpha=alpha,input_tensor=inputs, include_top=False,
                                                     weights='imagenet')
-    #x=mobilenetv2.output
     x,y1=make_last_layers_mobilenet(mobilenetv2.output,17,512,num_anchors * (num_classes + 5))
     x = compose(
-        Separable_Conv('block_20', (1, 1),256),
+        tf.keras.layers.Conv2D(256,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name='block_20_conv'),
+        tf.keras.layers.BatchNormalization(name='block_20_BN'),
+        tf.keras.layers.ReLU(6., name='block_20_relu6'),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
-        [x, mobilenetv2.get_layer('block_13_expand_relu').output])
+        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 384)(mobilenetv2.get_layer('block_12_project_BN').output)])
     x, y2 = make_last_layers_mobilenet(x, 21, 256, num_anchors * (num_classes + 5))
     x = compose(
-        Separable_Conv('block_24', (1, 1), 128),
+        tf.keras.layers.Conv2D(128,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name='block_24_conv'),
+        tf.keras.layers.BatchNormalization(name='block_24_BN'),
+        tf.keras.layers.ReLU(6., name='block_24_relu6'),
         tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()(
-        [x, mobilenetv2.get_layer('block_6_expand_relu').output])
+        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 128)(mobilenetv2.get_layer('block_5_project_BN').output)])
     x, y3 = make_last_layers_mobilenet(x, 25,128, num_anchors * (num_classes + 5))
-    # y1 = MobilenetConv2D_BN_Relu((1,1),alpha, 1280)(x)
-    # y1 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y1)
-    # x = compose(
-    #     MobilenetConv2D_BN_Relu((1,1),alpha, 640),
-    #     tf.keras.layers.UpSampling2D(2))(x)
-    #
-    # x = tf.keras.layers.Concatenate()(
-    #     [x, mobilenetv2.get_layer('block_13_expand_relu').output])
-    # y2 = MobilenetConv2D_BN_Relu((1,1),alpha, 640)(x)
-    # y2 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
-    # x = compose(
-    #     MobilenetConv2D_BN_Relu((1,1),alpha, 384),
-    #     tf.keras.layers.UpSampling2D(2))(x)
-    # x = tf.keras.layers.Concatenate()(
-    #     [x, mobilenetv2.get_layer('block_6_expand_relu').output])
-    # y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 384)(x)
-    # y3 = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
+
     y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, [-1, int(inputs.shape[1]) // 32, int(inputs.shape[2]) // 32, num_anchors, num_classes + 5]), name='y1')(y1)
+        feats, [-1, tf.cast(inputs.shape[1],tf.int32) // 32, tf.cast(inputs.shape[2],tf.int32) // 32, num_anchors, num_classes + 5]),name='y1')(y1)
     y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, [-1, int(inputs.shape[1]) // 16, int(inputs.shape[2]) // 16, num_anchors, num_classes + 5]), name='y2')(y2)
+        feats, [-1, tf.cast(inputs.shape[1],tf.int32) // 16, tf.cast(inputs.shape[2],tf.int32) // 16, num_anchors, num_classes + 5]),name='y2')(y2)
     y3 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, [-1, int(inputs.shape[1]) // 8, int(inputs.shape[2]) // 8, num_anchors, num_classes + 5]), name='y3')(y3)
+        feats, [-1, tf.cast(inputs.shape[1],tf.int32) // 8, tf.cast(inputs.shape[2],tf.int32) // 8, num_anchors, num_classes + 5]),name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1,y2,y3])
 
 def inception_block(filters, kernel):
@@ -321,9 +340,9 @@ def yolo_eval(yolo_outputs: List[tf.Tensor],
         boxes_.append(class_boxes)
         scores_.append(class_box_scores)
         classes_.append(classes)
-    boxes_ = tf.concat(boxes_, axis=0)
-    scores_ = tf.concat(scores_, axis=0)
-    classes_ = tf.concat(classes_, axis=0)
+    boxes_ = tf.concat(boxes_, axis=0,name='boxes')
+    scores_ = tf.concat(scores_, axis=0,name='scores')
+    classes_ = tf.concat(classes_, axis=0,name='classes')
 
     return boxes_, scores_, classes_
 
@@ -462,7 +481,7 @@ def box_giou(b1, b2):
     giou=iou-(enclose_area-union_area)/enclose_area
     return giou
 
-def yolo_loss(yolo_output,y_true,input_shape, anchors, num_classes: int, ignore_thresh: float = .5, box_loss=BOX_LOSS.GIOU,print_loss: bool = False):
+def yolo_loss(yolo_output,y_true,input_shape, anchors, ignore_thresh: float = .5, box_loss=BOX_LOSS.GIOU,print_loss: bool = False):
     '''Return yolo_loss tensor
 
     Parameters
@@ -486,8 +505,7 @@ def yolo_loss(yolo_output,y_true,input_shape, anchors, num_classes: int, ignore_
     mf = tf.cast(m, yolo_output.dtype)
     object_mask = y_true[..., 4:5]
     true_class_probs = y_true[..., 5:]
-    grid, pred_xy, pred_wh = yolo_head(yolo_output,
-                                                 anchors[anchor_mask[idx]], input_shape, calc_loss=True)
+    grid, pred_xy, pred_wh = yolo_head(yolo_output,anchors[anchor_mask[idx]], input_shape, calc_loss=True)
     pred_box = tf.concat([pred_xy, pred_wh], -1)
     # Find ignore mask, iterate over each of batch.
     ignore_mask = tf.TensorArray(y_true.dtype, size=1, dynamic_size=True)
@@ -510,6 +528,7 @@ def yolo_loss(yolo_output,y_true,input_shape, anchors, num_classes: int, ignore_
                                                                        logits=yolo_output[..., 5:])
     confidence_loss = tf.reduce_sum(confidence_loss) / mf
     class_loss = tf.reduce_sum(class_loss) / mf
+
     if box_loss==BOX_LOSS.GIOU:
         giou=box_giou(pred_box[...,:4],y_true[...,:4])
         box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]/tf.cast(tf.reduce_prod(input_shape),tf.float32)
@@ -521,7 +540,7 @@ def yolo_loss(yolo_output,y_true,input_shape, anchors, num_classes: int, ignore_
     elif box_loss==BOX_LOSS.MSE:
         grid_shape = tf.cast(tf.shape(yolo_output)[1:3], y_true.dtype)
         raw_true_xy = y_true[..., :2] * grid_shape[::-1] - grid
-        raw_true_wh = tf.math.log(y_true[..., 2:4] / anchors[anchor_mask[l]] * input_shape[::-1])
+        raw_true_wh = tf.math.log(y_true[..., 2:4] / anchors[anchor_mask[idx]] * input_shape[::-1])
         raw_true_wh = tf.keras.backend.switch(object_mask, raw_true_wh, tf.zeros_like(raw_true_wh))
         box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]
         xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(labels=raw_true_xy,
@@ -533,3 +552,4 @@ def yolo_loss(yolo_output,y_true,input_shape, anchors, num_classes: int, ignore_
         if print_loss:
             tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss, tf.reduce_sum(ignore_mask))
     return loss
+

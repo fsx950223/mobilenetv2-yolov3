@@ -1,0 +1,26 @@
+version: '3.7'
+services:
+  portainer:
+    image: "portainer/portainer"
+    deploy:
+      restart_policy:
+        condition: any
+        max_attempts: 3
+    ports:
+      - "9000:9000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "portainer_data:/data"
+  filebrowser:
+    volumes:
+      - "~/filebrowser/srv:/srv"
+    deploy:
+      restart_policy:
+        condition: any
+        max_attempts: 3
+    ports:
+      - "8090:8090"
+    command: filebrowser/filebrowser:v1.11.0 --port 8090
+
+volumes:
+  portainer_data:
