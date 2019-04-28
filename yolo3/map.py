@@ -8,14 +8,14 @@ from timeit import default_timer as timer
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 class MAPCallback(tf.keras.callbacks.Callback):
-    def tfrecord_dataset(self,files):
+    def tfrecord_dataset(self,files,batch_size=1):
         with tf.device('/cpu:0'):
             dataset = tf.data.Dataset.from_tensor_slices(files)
             """data generator for fit_generator"""
 
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
-                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE)
+                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).batch(batch_size)
 
             return dataset
     """
@@ -46,7 +46,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
         files = tf.io.gfile.glob(self.glob_path)
         test_num = reduce(lambda x, y: x + y,
                           map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-        test_dataset = self.tfrecord_dataset(files)
+        test_dataset = self.tfrecord_dataset(files,self.batch_size)
         true_res = {}
         pred_res = []
         idx = 0
@@ -64,13 +64,13 @@ class MAPCallback(tf.keras.callbacks.Callback):
                 boxed_image, image_shape = letterbox_image(image, new_image_size)
             image_data = np.expand_dims(boxed_image, 0)
             output = self.model.predict(image_data)
-            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image_shape[0:2],
+            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image.shape[0:2],
                                                            score_threshold=self.score, iou_threshold=self.nms)
             if len(out_classes) > 0:
                 for i in range(len(out_classes)):
                     w = int(image.shape[1])
                     h = int(image.shape[0])
-                    top, left, bottom, right = out_boxes[i].numpy() * ([h, w] * 2)
+                    top, left, bottom, right = out_boxes[i]
                     top = max(0, np.floor(top + 0.5).astype('int32'))
                     left = max(0, np.floor(left + 0.5).astype('int32'))
                     bottom = min(h, np.floor(bottom + 0.5).astype('int32'))
@@ -145,7 +145,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
             APs[cls] = ap
         return APs
 
-    def __init__(self,glob_path,input_shape,anchors,class_names,parse_fn,score=.5,iou=.5,nms=.5):
+    def __init__(self,glob_path,input_shape,anchors,class_names,parse_fn,score=.5,iou=.5,nms=.5,batch_size=1):
         self.input_shape=input_shape
         self.anchors = anchors
         self.class_names=class_names
@@ -155,6 +155,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
         self.iou=iou
         self.nms=nms
         self.parse_fn=parse_fn
+        self.batch_size=batch_size
 
     def on_train_end(self, logs={}):
         logs = logs or {}
