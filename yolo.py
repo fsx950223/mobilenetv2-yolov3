@@ -16,6 +16,7 @@ import os
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
 
+tf.keras.backend.set_learning_phase(0)
 if hasattr(tf,'enable_eager_execution'):
     tf.enable_eager_execution()
 gpus="0"
@@ -27,8 +28,8 @@ class YOLO(object):
         "backbone":BACKBONE.MOBILENETV2,
         "model_config":{
             BACKBONE.MOBILENETV2:{
-                "input_size":(224,224),
-                "model_path": '../download/mobilenetv2_trained_weights_final (16).h5',
+                "input_size":(416,416),
+                "model_path": '../download/mobilenetv2_trained_weights_final (17).h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -51,7 +52,7 @@ class YOLO(object):
                 "classes_path": 'model_data/voc_classes.txt'
             }
         },
-        "score": 0.2,
+        "score": 0.1,
         "nms": 0.5,
         "opt":OPT.XLA
     }
@@ -71,7 +72,7 @@ class YOLO(object):
         self.alpha=1.4
         self.input_shape=self.model_config[self.backbone]['input_size']
         config = tf.ConfigProto()
-        tf.keras.backend.set_learning_phase(0)
+
         if self.opt==OPT.XLA:
             config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
             sess = tf.Session(config=config)
@@ -125,7 +126,7 @@ class YOLO(object):
                 else:
                     self.input=tf.keras.layers.Input(shape=(None,None, 3), name='predict_image')
                     image,shape=letterbox_image(self.input,self.input_shape)
-                    self.input_image_shape=shape[1:3]
+                    self.input_image_shape=tf.shape(self.input)[1:3]
                     image=tf.reshape(image,[-1,*self.input_shape,3])
                     self.yolo_model = mobilenetv2_yolo_body(
                         image,
@@ -196,7 +197,7 @@ class YOLO(object):
             image_data = np.array(boxed_image)
             start = timer()
             output=self.yolo_model.predict(image_data)
-            out_boxes, out_scores, out_classes=yolo_eval(output,self.anchors,len(self.class_names),image_shape[1:3],
+            out_boxes, out_scores, out_classes=yolo_eval(output,self.anchors,len(self.class_names),image.shape[0:2],
                     score_threshold=self.score, iou_threshold=self.nms)
             end = timer()
             image = Image.fromarray((np.array(image) * 255).astype('uint8'), 'RGB')
@@ -227,7 +228,8 @@ class YOLO(object):
             draw = ImageDraw.Draw(image)
             label_size = draw.textsize(label, font)
 
-            top, left, bottom, right =box*(tuple(reversed(image.size))*2)
+            top, left, bottom, right =box
+            #top, left, bottom, right =box*(tuple(reversed(image.size))*2)
             top = max(0, np.floor(top + 0.5).astype('int32'))
             left = max(0, np.floor(left + 0.5).astype('int32'))
             bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
@@ -274,10 +276,10 @@ class YOLO(object):
             bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
 
             return image, bbox
-        map = MAPCallback(glob, self.input_shape, self.anchors, self.class_names, parse_fn, score=0)
-        map.set_model(self.yolo_model)
-        APs = self.calculate_aps()
-        for cls in range(self.num_classes):
+        mAP = MAPCallback(glob, self.input_shape, self.anchors, self.class_names, parse_fn, score=0)
+        mAP.set_model(self.yolo_model)
+        APs = mAP.calculate_aps()
+        for cls in range(len(self.class_names)):
             if cls in APs:
                 print(self.class_names[cls] + ' ap: ', APs[cls])
         mAP = np.mean([APs[cls] for cls in APs])
