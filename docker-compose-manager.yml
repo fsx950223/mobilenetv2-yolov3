@@ -2,6 +2,8 @@ version: '3.7'
 services:
   portainer:
     image: "portainer/portainer"
+    environment:
+      - TZ=Asia/Shanghai
     deploy:
       restart_policy:
         condition: any
@@ -13,6 +15,8 @@ services:
       - "portainer_data:/data"
   filebrowser:
     image: "filebrowser/filebrowser"
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       - "~/filebrowser/srv:/srv"
     deploy:
@@ -24,6 +28,8 @@ services:
     command: filebrowser/filebrowser:v1.11.0 --port 8090
   nginx:
     image: "nginx:1.16.0"
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       - "~/nginx/nginx.conf:/etc/nginx/nginx.conf"
       - "~/nginx/cache:/cache"

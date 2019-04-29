@@ -2,6 +2,8 @@ versiom: '3'
 services:
   serving:
     image: "tensorflow/serving:1.13.0"
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "8500:8500"
     volumes:
