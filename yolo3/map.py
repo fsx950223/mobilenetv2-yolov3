@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from yolo3.model import yolo_eval,box_iou
+from yolo3.model import yolo_eval
 from yolo3.utils import letterbox_image
 from functools import reduce
 from timeit import default_timer as timer
@@ -15,7 +15,17 @@ class MAPCallback(tf.keras.callbacks.Callback):
 
             dataset = dataset.interleave(
                 lambda file: tf.data.TFRecordDataset(file),
-                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).batch(batch_size)
+                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).prefetch(1).batch(1)
+
+            return dataset
+    def text_dataset(self,files,batch_size=1):
+        with tf.device('/cpu:0'):
+            dataset = tf.data.Dataset.from_tensor_slices(files)
+            """data generator for fit_generator"""
+
+            dataset = dataset.interleave(
+                lambda file: tf.data.TextLineDataset(file),
+                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).prefetch(1).batch(1)
 
             return dataset
     """
@@ -46,7 +56,10 @@ class MAPCallback(tf.keras.callbacks.Callback):
         files = tf.io.gfile.glob(self.glob_path)
         test_num = reduce(lambda x, y: x + y,
                           map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-        test_dataset = self.tfrecord_dataset(files,self.batch_size)
+        if self.glob_path.endswith('.tfrecords'):
+            test_dataset = self.tfrecord_dataset(files, self.batch_size)
+        elif self.glob_path.endswith('.txt'):
+            test_dataset = self.text_dataset(files,self.batch_size)
         true_res = {}
         pred_res = []
         idx = 0
@@ -56,25 +69,18 @@ class MAPCallback(tf.keras.callbacks.Callback):
             if self.input_shape != (None, None):
                 assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
                 assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
-                boxed_image, image_shape = letterbox_image(image, tuple(
+                boxed_image, resized_image_shape = letterbox_image(image, tuple(
                     reversed(self.input_shape)))
             else:
-                height, width, _ = image.shape
+                height, width, _ = tf.shape(image)
                 new_image_size = (width - (width % 32), height - (height % 32))
-                boxed_image, image_shape = letterbox_image(image, new_image_size)
-            image_data = np.expand_dims(boxed_image, 0)
-            output = self.model.predict(image_data)
-            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image.shape[0:2],
+                boxed_image, resized_image_shape = letterbox_image(image, new_image_size)
+            output = self.model.predict(boxed_image.numpy())
+            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image.shape[1:3],
                                                            score_threshold=self.score, iou_threshold=self.nms)
             if len(out_classes) > 0:
                 for i in range(len(out_classes)):
-                    w = int(image.shape[1])
-                    h = int(image.shape[0])
                     top, left, bottom, right = out_boxes[i]
-                    top = max(0, np.floor(top + 0.5).astype('int32'))
-                    left = max(0, np.floor(left + 0.5).astype('int32'))
-                    bottom = min(h, np.floor(bottom + 0.5).astype('int32'))
-                    right = min(w, np.floor(right + 0.5).astype('int32'))
                     pred_res.append([idx, out_classes[i].numpy(), out_scores[i].numpy(), left, top, right, bottom])
             true_res[idx] = []
             for item in list(np.transpose(bbox)):
@@ -145,8 +151,11 @@ class MAPCallback(tf.keras.callbacks.Callback):
             APs[cls] = ap
         return APs
 
-    def __init__(self,glob_path,input_shape,anchors,class_names,parse_fn,score=.5,iou=.5,nms=.5,batch_size=1):
-        self.input_shape=input_shape
+    def __init__(self,glob_path,input_shapes,anchors,class_names,parse_fn,score=.5,iou=.5,nms=.5,batch_size=1):
+        if isinstance(input_shapes,list):
+            self.input_shape=input_shapes[0]
+        else:
+            self.input_shape = input_shapes
         self.anchors = anchors
         self.class_names=class_names
         self.num_classes = len(class_names)

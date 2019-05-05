@@ -17,17 +17,20 @@ def compose(*funcs):
 
 def letterbox_image(image, size):
     '''resize image with unchanged aspect ratio using padding'''
-    iw, ih = tf.cast(tf.shape(image)[2], tf.int32), tf.cast(tf.shape(image)[1], tf.int32)
+    if len(image.shape)==4:
+        iw, ih = tf.cast(tf.shape(image)[2], tf.int32), tf.cast(tf.shape(image)[1], tf.int32)
+    elif len(image.shape)==3:
+        iw, ih = tf.cast(tf.shape(image)[1], tf.int32), tf.cast(tf.shape(image)[0], tf.int32)
     w, h = tf.cast(size[1], tf.int32), tf.cast(size[0], tf.int32)
     nh = tf.cast(tf.cast(ih,tf.float64) * tf.minimum(w / iw, h / ih),tf.int32)
     nw = tf.cast(tf.cast(iw,tf.float64) * tf.minimum(w / iw, h / ih),tf.int32)
     dx = (w - nw) // 2
     dy = (h - nh) // 2
 
-    image = tf.image.resize(image, [nh, nw])
-    new_image = tf.image.pad_to_bounding_box(image, dy, dx, h, w)
+    resized_image = tf.image.resize(image, [nh, nw])
+    new_image = tf.image.pad_to_bounding_box(resized_image, dy, dx, h, w)
     image_color_padded = tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
-    return image_color_padded + new_image,tf.shape(image)
+    return image_color_padded + new_image,tf.shape(resized_image)
 
 def random_gamma(image,min,max):
     val=tf.random.uniform([],min,max)
@@ -112,9 +115,8 @@ def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,m
         ymax = ymax * nh / ih + dy
     bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
-
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
-    bbox = tf.clip_by_value(bbox, clip_value_min=0, clip_value_max=input_shape[0] - 1)
+    bbox = tf.clip_by_value(bbox, clip_value_min=0, clip_value_max=tf.cast(input_shape[0] - 1,tf.float32))
     bbox_w = bbox[..., 2] - bbox[..., 0]
     bbox_h = bbox[..., 3] - bbox[..., 1]
     bbox = tf.boolean_mask(bbox, tf.logical_and(bbox_w > 1, bbox_h > 1))
