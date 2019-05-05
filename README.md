@@ -1,5 +1,6 @@
 # mobilenetv2-yolov3
 Tensorflow implementation mobilenetv2-yolov3 inspired by [keras-yolo3](https://github.com/qqwweee/keras-yolo3.git)
+
 # Update
 Backend:
 - [x] MobilenetV2
@@ -13,16 +14,20 @@ Callback:
 
 Loss:
 - [x] MSE
-- [ ] IOU
 - [x] GIOU
+- [x] Focal Loss
+
+Train:
+- [x] Multi scale image size
+- [x] Cosine learning rate
 
 Tensorflow:
 - [x] Tensorflow2 Ready
 - [x] Use tf.data to load dataset
-- [ ] Remove image shape input when use session
+- [x] Remove image shape input when use session
 - [ ] Convert model to tensorflow lite model
 - [ ] Multi GPU training support
-- [ ] Tensorflow Serving JAVA Client
+- [x] Tensorflow Serving JAVA Client
 - [ ] Tensorflow Serving Server Build and Plugins develop 
 
 # Requirement
@@ -31,6 +36,7 @@ Tensorflow-1.13+
 Numpy-1.16.2+
 
 Python-3.6.7+
+
 # Usage
 ```
 usage: yolo_video.py [-h] [--model MODEL] [--anchors ANCHORS]
@@ -53,6 +59,7 @@ optional arguments:
   --export           Export binary pb model for tensorflow,which you can put it in tensorflow serving directly
 ```
 ---
+
 # Train
 * Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
 * Change [train.py](https://github.com/fsx950223/mobilenetv2-yolov3/blob/master/train.py)
