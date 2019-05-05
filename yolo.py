@@ -16,9 +16,9 @@ import os
 from typing import List, Tuple
 from tensorflow.python import debug as tf_debug
 
-tf.keras.backend.set_learning_phase(0)
 if hasattr(tf,'enable_eager_execution'):
     tf.enable_eager_execution()
+tf.keras.backend.set_learning_phase(0)
 gpus="0"
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num=len(gpus.split(','))
@@ -28,8 +28,8 @@ class YOLO(object):
         "backbone":BACKBONE.MOBILENETV2,
         "model_config":{
             BACKBONE.MOBILENETV2:{
-                "input_size":(416,416),
-                "model_path": '../download/mobilenetv2_trained_weights_final (17).h5',
+                "input_size":(320,320),
+                "model_path": '../download/ep078-loss8.977-val_loss9.725.h5',
                 "anchors_path":'model_data/yolo_anchors.txt',
                 "classes_path":'model_data/voc_classes.txt'
             },
@@ -52,7 +52,7 @@ class YOLO(object):
                 "classes_path": 'model_data/voc_classes.txt'
             }
         },
-        "score": 0.1,
+        "score": 0.2,
         "nms": 0.5,
         "opt":OPT.XLA
     }
@@ -83,7 +83,8 @@ class YOLO(object):
             sess = tf.Session(config=config)
             tf.keras.backend.set_session(sess)
         elif self.opt==OPT.DEBUG:
-            sess=tf_debug.TensorBoardDebugWrapperSession(tf.get_session(), "fangsixie-Inspiron-7572:6064")
+            tf.logging.set_verbosity(tf.logging.DEBUG)
+            sess=tf_debug.TensorBoardDebugWrapperSession(tf.Session(config=tf.ConfigProto(log_device_placement=True)), "localhost:6064")
             tf.keras.backend.set_session(sess)
         else:
             sess = tf.get_session()
@@ -124,9 +125,10 @@ class YOLO(object):
                         num_anchors // 3,
                         num_classes, self.alpha)
                 else:
-                    self.input=tf.keras.layers.Input(shape=(None,None, 3), name='predict_image')
-                    image,shape=letterbox_image(self.input,self.input_shape)
-                    self.input_image_shape=tf.shape(self.input)[1:3]
+                    self.input=tf.keras.layers.Input(shape=(None,None, 3), name='predict_image',dtype=tf.uint8)
+                    input=tf.map_fn(lambda image:tf.image.convert_image_dtype(image,tf.float32),self.input,tf.float32)
+                    image,shape=letterbox_image(input,self.input_shape)
+                    self.input_image_shape=tf.shape(input)[1:3]
                     image=tf.reshape(image,[-1,*self.input_shape,3])
                     self.yolo_model = mobilenetv2_yolo_body(
                         image,
@@ -182,6 +184,14 @@ class YOLO(object):
             },
             outputs={t.name: t for t in [self.boxes, self.scores, self.classes]})
 
+    def export_tflite_model(self,path:str)->None:
+        converter = tf.lite.TFLiteConverter.from_session(self.sess, [self.input], [self.boxes, self.scores, self.classes])
+        converter.inference_type = tf.lite.constants.QUANTIZED_UINT8
+        input_arrays = converter.get_input_arrays()
+        converter.quantized_input_stats = {input_arrays[0]: (0., 1.)}
+        tflite_model = converter.convert()
+        open(path, "wb").write(tflite_model)
+
     def detect_image(self, image) -> Image:
         if tf.executing_eagerly():
             image_data = tf.expand_dims(image, 0)
@@ -202,9 +212,7 @@ class YOLO(object):
             end = timer()
             image = Image.fromarray((np.array(image) * 255).astype('uint8'), 'RGB')
         else:
-            image_data=np.array(image,dtype='float32')
-            image_data/=255.
-            image_data=np.expand_dims(image_data,0)
+            image_data=np.expand_dims(image,0)
             start = timer()
             out_boxes, out_scores, out_classes = self.sess.run(
                 [self.boxes, self.scores, self.classes],
@@ -229,11 +237,6 @@ class YOLO(object):
             label_size = draw.textsize(label, font)
 
             top, left, bottom, right =box
-            #top, left, bottom, right =box*(tuple(reversed(image.size))*2)
-            top = max(0, np.floor(top + 0.5).astype('int32'))
-            left = max(0, np.floor(left + 0.5).astype('int32'))
-            bottom = min(image.size[1], np.floor(bottom + 0.5).astype('int32'))
-            right = min(image.size[0], np.floor(right + 0.5).astype('int32'))
             print(label, (left, top), (right, bottom))
 
             if top - label_size[1] >= 0:
@@ -266,7 +269,7 @@ class YOLO(object):
                 'image/object/bbox/label': tf.io.VarLenFeature(tf.int64)
             }
             features = tf.io.parse_single_example(example_proto, feature_description)
-            image = tf.image.decode_image(features['image/encoded'],channels=3,dtype=tf.float32)
+            image = tf.image.decode_image(features['image/encoded'], channels=3, dtype=tf.float32)
             image.set_shape([None, None, 3])
             xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
             xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
@@ -276,7 +279,7 @@ class YOLO(object):
             bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
 
             return image, bbox
-        mAP = MAPCallback(glob, self.input_shape, self.anchors, self.class_names, parse_fn, score=0)
+        mAP = MAPCallback(glob, self.input_shape, self.anchors, self.class_names, parse_fn, score=0,batch_size=4)
         mAP.set_model(self.yolo_model)
         APs = mAP.calculate_aps()
         for cls in range(len(self.class_names)):
@@ -288,6 +291,20 @@ class YOLO(object):
     def close_session(self):
         self.sess.close()
 
+def detect_img(yolo):
+    while True:
+        image_path = input('Input image filename:')
+        try:
+            if tf.executing_eagerly():
+                content = tf.io.read_file(image_path,'rb')
+                image = tf.image.decode_image(content,channels=3,dtype=tf.float32)
+            else:
+                image = Image.open(image_path)
+        except:
+            print('Open Error! Try again!')
+        r_image = yolo.detect_image(image)
+        r_image.show()
+    yolo.close_session()
 
 def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
     import cv2
