@@ -1,23 +1,5 @@
-import numpy as np
 import argparse
-from yolo import YOLO, detect_video
-from PIL import Image
-from timeit import default_timer as timer
-import tensorflow as tf
-def detect_img(yolo):
-    while True:
-        img = input('Input image filename:')
-        if tf.executing_eagerly():
-            content = tf.io.read_file(img,'rb')
-            image = tf.image.decode_image(content,channels=3,dtype=tf.float32)
-        else:
-            try:
-                image = Image.open(img)
-            except:
-                print('Open Error! Try again!')
-        r_image = yolo.detect_image(image)
-        r_image.show()
-    yolo.close_session()
+from yolo import YOLO, detect_video,detect_img
 
 FLAGS = None
 
@@ -92,7 +74,7 @@ if __name__ == '__main__':
         """
         Calculate test dataset map
         """
-        print("map")
+        print("Calculate map")
         if "input" in FLAGS:
             print(" Ignoring remaining command line arguments: " + FLAGS.input + "," + FLAGS.output)
         YOLO(**vars(FLAGS)).calculate_map(FLAGS.test_dataset)
