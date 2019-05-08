@@ -22,20 +22,22 @@ os.environ["CUDA_VISIBLE_DEVICES"] = gpus
 gpu_num = len(gpus.split(','))
 tf.keras.backend.set_learning_phase(1)
 def _main():
-    opt=OPT.XLA
+    opt=OPT.DEBUG
     backbone = BACKBONE.MOBILENETV2
     log_dir = 'logs/'+str(backbone).split('.')[1].lower()+str(datetime.date.today())
     batch_size = 4
     train_dataset_path = '../pascal/VOCdevkit/train'
     val_dataset_path = '../pascal/VOCdevkit/val'
+    test_dataset_path='../pascal/VOCdevkit/test'
     train_dataset_glob='*2007*.tfrecords'
     val_dataset_glob='*2007*.tfrecords'
+    test_dataset_glob='*2007*.tfrecords'
     freeze_step=10
-    train_step=10
+    train_step=20
     model_config = {
         BACKBONE.MOBILENETV2: {
-            "input_size": [(416, 416),(224,224),(320,320)],
-            "model_path": '../download/mobilenetv2_trained_weights_final (14).h5',
+            "input_size": [(416, 416),(224,224),(320,320),(512, 512),(608,608)],
+            "model_path": '../download/ep049-loss10.452-val_loss9.514.h5',
             "anchors_path": 'model_data/yolo_anchors.txt',
             "classes_path": 'model_data/voc_classes.txt',
             "learning_rate":[1e-4,1e-4],
@@ -65,8 +67,9 @@ def _main():
     }
 
     if opt == OPT.DEBUG:
-        tf.logging.set_verbosity(tf.logging.DEBUG)
+        tf.get_logger().setLevel(tf.logging.DEBUG)
         tf.keras.backend.set_session(tf_debug.TensorBoardDebugWrapperSession(tf.Session(config=tf.ConfigProto(log_device_placement=True)), 'localhost:6064'))
+        #tf.keras.backend.set_session(tf_debug.LocalCLIDebugWrapperSession(tf.Session()))
     elif opt == OPT.XLA:
         config = tf.ConfigProto()
         config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
@@ -88,22 +91,22 @@ def _main():
     batch_size = batch_size * strategy.num_replicas_in_sync
 
     #with strategy.scope():
-    with tf.device('/cpu:0'):
-        if backbone == BACKBONE.MOBILENETV2:
-            model = create_mobilenetv2_model(anchors, num_classes, False, alpha=alpha,
-                                             freeze_body=1, weights_path=model_path)
-        elif backbone == BACKBONE.DARKNET53:
-            model = create_darknet_model(input_shape, anchors, num_classes,
-                                         freeze_body=1,
-                                         weights_path=model_path)
-        elif backbone == BACKBONE.INCEPTION_RESNET2:
-            model = create_inception_model(input_shape, anchors, num_classes, False,
-                                           freeze_body=1,
-                                           weights_path=model_path)
-        elif backbone == BACKBONE.DENSENET:
-            model = create_densenet_model(input_shape, anchors, num_classes, False,
-                                           freeze_body=1,
-                                           weights_path=model_path)
+    #with tf.device('/cpu:0'):
+    if backbone == BACKBONE.MOBILENETV2:
+        model = create_mobilenetv2_model(anchors, num_classes, False, alpha=alpha,
+                                         freeze_body=1, weights_path=model_path)
+    elif backbone == BACKBONE.DARKNET53:
+        model = create_darknet_model(input_shape, anchors, num_classes,
+                                     freeze_body=1,
+                                     weights_path=model_path)
+    elif backbone == BACKBONE.INCEPTION_RESNET2:
+        model = create_inception_model(input_shape, anchors, num_classes, False,
+                                       freeze_body=1,
+                                       weights_path=model_path)
+    elif backbone == BACKBONE.DENSENET:
+        model = create_densenet_model(input_shape, anchors, num_classes, False,
+                                       freeze_body=1,
+                                       weights_path=model_path)
 
     def parse_fn(example_proto):
         feature_description = {
@@ -116,24 +119,21 @@ def _main():
         }
         features = tf.io.parse_single_example(example_proto, feature_description)
         image = tf.image.decode_image(features['image/encoded'],channels=3,dtype=tf.float32)
-        image.set_shape([None, None, 3])
         xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
         xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
         ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
         ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
         label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
-        bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+        bbox = tf.concat([xmin,ymin,xmax,ymax,tf.cast(label, tf.float32)], 0)
         return image, bbox
 
-    map_callback = MAPCallback('../pascal/VOCdevkit/test/*.tfrecords', input_shape, anchors, class_names,parse_fn, score=0,batch_size=batch_size)
+    map_callback = MAPCallback(os.path.join(test_dataset_path, test_dataset_glob), input_shape, anchors, class_names,parse_fn, score=0,batch_size=batch_size)
     logging = tf.keras.callbacks.TensorBoard(log_dir=log_dir,write_images=True)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(log_dir,'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
                                                     monitor='val_loss', save_weights_only=True, save_best_only=True,
-                                                    period=3)
-    cos_lr=tf.keras.callbacks.LearningRateScheduler(lambda epoch,lr:tf.train.cosine_decay_restarts(lr,epoch-freeze_step,(train_step-freeze_step)//5)().numpy(),1)
-    #reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1,min_lr=1e-5)
-    #early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
-
+                                                    period=1)
+    cos_lr=tf.keras.callbacks.LearningRateScheduler(lambda epoch,_:tf.train.cosine_decay_restarts(lr[1],epoch-freeze_step,train_step//5)().numpy(),1)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=20, verbose=1)
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
     if gpu_num>=2:
@@ -143,12 +143,12 @@ def _main():
     if True:
         #with strategy.scope():
         parallel_model.compile(optimizer=tf.keras.optimizers.Adam(lr[0],epsilon=1e-8),
-                      loss=[lambda y_true, y_pred: yolo_loss(y_pred, y_true, idx, anchors,
-                                                             print_loss=True) for idx in range(3)])
+                  loss=[lambda y_true, y_pred: yolo_loss(y_pred, y_true, anchors,
+                                                             print_loss=True)]*3)
         parallel_model.fit(train_dataset,
                   epochs=freeze_step, initial_epoch=0,
                   steps_per_epoch=max(1, train_num// batch_size),
-                  callbacks=[logging, checkpoint,train_dataset_callback],
+                  callbacks=[logging,train_dataset_callback],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num// batch_size))
         model.save_weights(os.path.join(log_dir,str(backbone).split('.')[1].lower() + '_trained_weights_stage_1.h5'))
@@ -160,12 +160,12 @@ def _main():
             model.layers[i].trainable = True
         #with strategy.scope():
         parallel_model.compile(optimizer=tf.keras.optimizers.Adam(lr[1],epsilon=1e-8),
-                  loss=[lambda y_true, y_pred: yolo_loss(y_pred, y_true, idx, anchors,
-                                                         print_loss=True) for idx in range(3)])  # recompile to apply the change
+                  loss=[lambda y_true, y_pred: yolo_loss(y_pred, y_true, anchors,
+                                                             print_loss=True)]*3)  # recompile to apply the change
         print('Unfreeze all of the layers.')
         parallel_model.fit(train_dataset,
                   epochs=train_step+freeze_step, initial_epoch=freeze_step, steps_per_epoch=max(1, train_num // batch_size),
-                  callbacks=[checkpoint,cos_lr,map_callback,train_dataset_callback],
+                  callbacks=[checkpoint,cos_lr,map_callback,train_dataset_callback,early_stopping],
                   validation_data=val_dataset,
                   validation_steps=max(1, val_num // batch_size))
         model.save_weights(os.path.join(log_dir,str(backbone).split('.')[1].lower() + '_trained_weights_final.h5'))

@@ -43,7 +43,7 @@ def random_blur(image):
     image.set_shape([h, w, 3])
     return image
 
-def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,max_scale=2, jitter = .3,min_gamma=0.6,max_gamma=4,blur=False,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
+def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,max_scale=2, jitter = 0.3,min_gamma=0.8,max_gamma=2,blur=False,flip=True,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=100,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
 
     iw, ih = tf.cast(tf.shape(image)[1], tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
@@ -54,33 +54,35 @@ def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,m
     ymin = tf.expand_dims(ymin, 0)
     label = tf.expand_dims(label, 0)
     if train:
-        new_ar = w / h * tf.random.uniform([], 1 - jitter, 1 + jitter) / tf.random.uniform([], 1 - jitter, 1 + jitter)
+        new_ar = (w / h) * (tf.random.uniform([], 1 - jitter, 1 + jitter) / tf.random.uniform([], 1 - jitter, 1 + jitter))
         scale = tf.random.uniform([], min_scale, max_scale)
-        nw, nh = tf.cond(tf.less(new_ar, 1), lambda: (scale * h * new_ar, scale * h),
-                         lambda: (scale * w, scale * w / new_ar))
+        ratio=tf.cond(tf.less(new_ar, 1),lambda: scale*new_ar,lambda: scale/new_ar)
+        ratio=tf.maximum(ratio,1)
+        nw, nh = tf.cond(tf.less(new_ar, 1), lambda: (ratio * h, scale * h),
+                         lambda: (scale * w, ratio * w ))
         dx = tf.random.uniform([], 0, w - nw)
         dy = tf.random.uniform([], 0, h - nh)
         image = tf.image.resize(image, [tf.cast(nh, tf.int32), tf.cast(nw, tf.int32)])
-        def crop_and_pad(image):
-            image=tf.image.crop_to_bounding_box(image, tf.cast(tf.math.maximum(-dy, 0), tf.int32),
-                                          tf.cast(tf.math.maximum(-dx, 0), tf.int32),
+        def crop_and_pad(image,dx,dy):
+            dy=tf.cast(tf.math.maximum(-dy, 0), tf.int32)
+            dx=tf.cast(tf.math.maximum(-dx, 0), tf.int32)
+            image=tf.image.crop_to_bounding_box(image, dy,dx,
                                           tf.math.minimum(tf.cast(h, tf.int32), tf.cast(nh, tf.int32)),
                                           tf.math.minimum(tf.cast(w, tf.int32), tf.cast(nw, tf.int32)))
-            image=tf.image.pad_to_bounding_box(image, 0,
-                                          0,
-                                          tf.cast(h, tf.int32),
-                                          tf.cast(w, tf.int32))
+            image=tf.image.pad_to_bounding_box(image,0,0,tf.cast(h, tf.int32),tf.cast(w, tf.int32))
             return image
         new_image=tf.cond(tf.greater(scale,1),
-                          lambda:crop_and_pad(image),
+                          lambda:crop_and_pad(image,dx,dy),
                           lambda:tf.image.pad_to_bounding_box(image,tf.cast(tf.math.maximum(dy, 0),tf.int32), tf.cast(tf.math.maximum(dx, 0),tf.int32),tf.cast(h, tf.int32), tf.cast(w, tf.int32)))
         image_color_padded=tf.cast(tf.equal(new_image, 0), tf.float32) * (128 / 255)
         image = image_color_padded + new_image
+
         xmin = xmin * nw / iw + dx
         xmax = xmax * nw / iw + dx
         ymin = ymin * nh / ih + dy
         ymax = ymax * nh / ih + dy
-        image, xmin, xmax=tf.cond(tf.less(tf.random.uniform([]), 0.5),lambda: (tf.image.flip_left_right(image),w-xmax,w-xmin),lambda :(image,xmin,xmax))
+        if flip:
+            image, xmin, xmax=tf.cond(tf.less(tf.random.uniform([]), 0.5),lambda: (tf.image.flip_left_right(image),w-xmax,w-xmin),lambda :(image,xmin,xmax))
         if hue>0:
             image = tf.image.random_hue(image, hue)
         if sat>1:
@@ -113,7 +115,7 @@ def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,m
         xmax = xmax * nw / iw + dx
         ymin = ymin * nh / ih + dy
         ymax = ymax * nh / ih + dy
-    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+    bbox = tf.concat([xmin,ymin,xmax,ymax, tf.cast(label, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
     bbox = tf.clip_by_value(bbox, clip_value_min=0, clip_value_max=tf.cast(input_shape[0] - 1,tf.float32))

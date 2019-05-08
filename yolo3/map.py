@@ -9,25 +9,25 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 class MAPCallback(tf.keras.callbacks.Callback):
     def tfrecord_dataset(self,files,batch_size=1):
-        with tf.device('/cpu:0'):
-            dataset = tf.data.Dataset.from_tensor_slices(files)
-            """data generator for fit_generator"""
+        #with tf.device('/cpu:0'):
+        dataset = tf.data.Dataset.from_tensor_slices(files)
+        """data generator for fit_generator"""
 
-            dataset = dataset.interleave(
-                lambda file: tf.data.TFRecordDataset(file),
-                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).prefetch(1).batch(1)
+        dataset = dataset.interleave(
+            lambda file: tf.data.TFRecordDataset(file),
+            cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE)
+        return dataset
 
-            return dataset
     def text_dataset(self,files,batch_size=1):
-        with tf.device('/cpu:0'):
-            dataset = tf.data.Dataset.from_tensor_slices(files)
-            """data generator for fit_generator"""
+        #with tf.device('/cpu:0'):
+        dataset = tf.data.Dataset.from_tensor_slices(files)
+        """data generator for fit_generator"""
 
-            dataset = dataset.interleave(
-                lambda file: tf.data.TextLineDataset(file),
-                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).prefetch(1).batch(1)
+        dataset = dataset.interleave(
+            lambda file: tf.data.TextLineDataset(file),
+            cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE)
 
-            return dataset
+        return dataset
     """
      Calculate the AP given the recall and precision array
         1st) We compute a version of the measured precision/recall curve with
@@ -75,7 +75,8 @@ class MAPCallback(tf.keras.callbacks.Callback):
                 height, width, _ = tf.shape(image)
                 new_image_size = (width - (width % 32), height - (height % 32))
                 boxed_image, resized_image_shape = letterbox_image(image, new_image_size)
-            output = self.model.predict(boxed_image.numpy())
+            image_data=np.expand_dims(boxed_image,0)
+            output = self.model.predict(image_data)
             out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image.shape[1:3],
                                                            score_threshold=self.score, iou_threshold=self.nms)
             if len(out_classes) > 0:
