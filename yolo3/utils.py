@@ -3,6 +3,7 @@
 from functools import reduce
 import cv2
 import tensorflow as tf
+import numpy as np
 
 def compose(*funcs):
     """Compose arbitrarily many functions, evaluated left to right.
@@ -43,7 +44,27 @@ def random_blur(image):
     image.set_shape([h, w, 3])
     return image
 
-def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,max_scale=2, jitter = 0.3,min_gamma=0.8,max_gamma=2,blur=False,flip=True,hue=.1, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=100,max_jpeg_quality=100, train:bool=True):
+def get_anchors(anchors_path):
+    with open(anchors_path) as f:
+        anchors = f.readline()
+    anchors = [float(x) for x in anchors.split(',')]
+    return np.array(anchors).reshape(-1, 2)
+
+def bind(instance,func,as_name=None):
+    if as_name is None:
+        as_name=func.__name__
+    bound_method=func.__get__(instance,instance.__class__)
+    setattr(instance,as_name,bound_method)
+    return bound_method
+
+def get_classes(classes_path):
+    """loads the classes"""
+    with open(classes_path) as f:
+        class_names = f.readlines()
+    class_names = [c.strip() for c in class_names]
+    return class_names
+
+def get_random_data(image,xmin,xmax,ymin,ymax,label,input_shape,min_scale=0.25,max_scale=2, jitter = 0.3,min_gamma=0.8,max_gamma=2,blur=False,flip=True,hue=.5, sat=.5,val=0.,cont=.1,noise=0, max_boxes=20,min_jpeg_quality=80,max_jpeg_quality=100, train:bool=True):
     '''random preprocessing for real-time data augmentation'''
 
     iw, ih = tf.cast(tf.shape(image)[1], tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
