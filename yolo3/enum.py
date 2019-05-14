@@ -18,3 +18,9 @@ class BACKBONE(Enum):
 class BOX_LOSS(Enum):
     MSE=0
     GIOU=1
+
+@unique
+class DATASET_MODE(Enum):
+    TRAIN=0
+    VALIDATE=1
+    TEST=2
