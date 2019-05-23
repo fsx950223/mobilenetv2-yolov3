@@ -79,44 +79,10 @@ def darknet_yolo_body(inputs, num_anchors, num_classes):
                 tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()([x, darknet.layers[92].output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
-    y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, (-1, tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes +
-                5)),
-                                name='y1')(y1)
-    y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, (-1, tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes +
-                5)),
-                                name='y2')(y2)
-    y3 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, (-1, tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes +
-                5)),
-                                name='y3')(y3)
+    y1=tf.keras.layers.Reshape((-1, tf.shape(y1)[1],tf.shape(y1)[2],num_anchors,num_classes +5),name='y1')(y1)
+    y2=tf.keras.layers.Reshape((-1, tf.shape(y2)[1],tf.shape(y2)[2],num_anchors,num_classes +5),name='y2')(y2)
+    y3=tf.keras.layers.Reshape((-1, tf.shape(y3)[1],tf.shape(y3)[2],num_anchors,num_classes +5),name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
-
-
-# class MobilenetSeparableConv2D(tf.keras.layers.Layer):
-#     def __init__(self,filters,kernel_size,strides=(1,1),padding='valid',use_bias=True,**kwargs):
-#         super(MobilenetSeparableConv2D,self).__init__(**kwargs)
-#         self.depthwise_conv2d=tf.keras.layers.DepthwiseConv2D(kernel_size,padding=padding,use_bias=use_bias,strides=strides)
-#         self.batch_normalization = tf.keras.layers.BatchNormalization(momentum=0.9)
-#         self.conv2d=tf.keras.layers.Conv2D(filters,1,padding='same',use_bias=use_bias,strides=1)
-#         self.relu6 = tf.nn.relu6
-#
-#     def call(self, inputs):
-#         # return compose(self.depthwise_conv2d,
-#         #         self.batch_normalization,
-#         #         self.relu6,
-#         #         self.conv2d,
-#         #         self.batch_normalization,
-#         #         self.relu6)(inputs)
-#         x=self.depthwise_conv2d(inputs)
-#         x=tf.keras.layers.BatchNormalization(momentum=0.9)(x)
-#         x =self.relu6(x)
-#         x =self.conv2d(x)
-#         x=tf.keras.layers.BatchNormalization(momentum=0.9)(x)
-#         x=self.relu6(x)
-#         return x
-
 
 def MobilenetSeparableConv2D(filters,
                              kernel_size,
@@ -182,30 +148,6 @@ def make_last_layers_mobilenet(x, id, num_filters, out_filters):
                                use_bias=False))(x)
     return x, y
 
-
-# class MobilenetConv2D(tf.keras.layers.Layer):
-#     def __init__(self,kernel,alpha,filters,**kwargs):
-#         super(MobilenetConv2D,self).__init__(**kwargs)
-#         last_block_filters = self._make_divisible(filters * alpha, 8)
-#         self.conv2d=tf.keras.layers.Conv2D(last_block_filters,kernel,padding='same',use_bias=False)
-#         self.batch_normalization=tf.keras.layers.BatchNormalization(momentum=0.9)
-#         self.relu6=tf.nn.relu6
-#
-#     def call(self,inputs):
-#         return compose(self.conv2d,
-#                        self.batch_normalization,
-#                        self.relu6)(inputs)
-#
-#     def _make_divisible(self,v, divisor, min_value=None):
-#         if min_value is None:
-#             min_value = divisor
-#         new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-#         # Make sure that round down does not go down by more than 10%.
-#         if new_v < 0.9 * v:
-#             new_v += divisor
-#         return new_v
-
-
 def _make_divisible(v, divisor, min_value=None):
     if min_value is None:
         min_value = divisor
@@ -268,18 +210,9 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     x, y3 = make_last_layers_mobilenet(x, 25, 128,
                                        num_anchors * (num_classes + 5))
 
-    y1 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, (-1, tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes +
-                5)),
-                                name='y1')(y1)
-    y2 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, (-1, tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes +
-                5)),
-                                name='y2')(y2)
-    y3 = tf.keras.layers.Lambda(lambda feats: tf.reshape(
-        feats, (-1, tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes +
-                5)),
-                                name='y3')(y3)
+    y1 = tf.keras.layers.Reshape((-1, tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5), name='y1')(y1)
+    y2 = tf.keras.layers.Reshape((-1, tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5), name='y2')(y2)
+    y3 = tf.keras.layers.Reshape((-1, tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 
