@@ -52,17 +52,19 @@ import tensorflow as tf
 #       training = self._training
 #     return super(FreezableBatchNorm, self).call(inputs, training=training)
 
+
 def _make_divisible(v, divisor, min_value=None):
-  if min_value is None:
-    min_value = divisor
-  new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-  # Make sure that round down does not go down by more than 10%.
-  if new_v < 0.9 * v:
-    new_v += divisor
-  return new_v
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
+
 
 def _fixed_padding(inputs, kernel_size, rate=1):
-  """Pads the input along the spatial dimensions independently of input size.
+    """Pads the input along the spatial dimensions independently of input size.
 
   Args:
     inputs: A tensor of size [batch, height_in, width_in, channels].
@@ -74,16 +76,23 @@ def _fixed_padding(inputs, kernel_size, rate=1):
     output: A tensor of size [batch, height_out, width_out, channels] with the
       input, either intact (if kernel_size == 1) or padded (if kernel_size > 1).
   """
-  kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
-  pad_total = kernel_size_effective - 1
-  pad_beg = pad_total // 2
-  pad_end = pad_total - pad_beg
-  padded_inputs = tf.pad(inputs, [[0, 0], [pad_beg, pad_end],
-                                  [pad_beg, pad_end], [0, 0]])
-  return padded_inputs
+    kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
+    pad_total = kernel_size_effective - 1
+    pad_beg = pad_total // 2
+    pad_end = pad_total - pad_beg
+    padded_inputs = tf.pad(
+        inputs, [[0, 0], [pad_beg, pad_end], [pad_beg, pad_end], [0, 0]])
+    return padded_inputs
+
 
 class _LayersOverride:
-    def __init__(self,default_batchnorm_momentum=0.999,conv_hyperparams=None,use_explicit_padding=False,alpha=1.0,min_depth=None):
+
+    def __init__(self,
+                 default_batchnorm_momentum=0.999,
+                 conv_hyperparams=None,
+                 use_explicit_padding=False,
+                 alpha=1.0,
+                 min_depth=None):
         """Alternative tf.keras.layers interface, for use by the Keras MobileNetV2.
 
         It is used by the Keras applications kwargs injection API to
@@ -114,13 +123,13 @@ class _LayersOverride:
             modifies the number of filters in each convolutional layer.
           min_depth: Minimum number of filters in the convolutional layers.
         """
-        self._default_batchnorm_momentum=default_batchnorm_momentum
-        self._conv_hyperparams=conv_hyperparams
-        self._use_explicit_padding=use_explicit_padding
-        self._alpha=alpha
-        self._min_depth=min_depth
-        self._regularizer=tf.keras.regularizers.l2(0.00004)
-        self._initializer=tf.keras.initializers.RandomNormal(stddev=0.03)
+        self._default_batchnorm_momentum = default_batchnorm_momentum
+        self._conv_hyperparams = conv_hyperparams
+        self._use_explicit_padding = use_explicit_padding
+        self._alpha = alpha
+        self._min_depth = min_depth
+        self._regularizer = tf.keras.regularizers.l2(0.00004)
+        self._initializer = tf.keras.initializers.RandomNormal(stddev=0.03)
 
     # def _FixedPaddingLayer(self,kernel_size):
     #     return tf.keras.layers.Lambda(lambda x: _fixed_padding(x, kernel_size))
@@ -210,11 +219,12 @@ class _LayersOverride:
           A normalization layer specified by the Object Detection hyperparameter
           configurations.
         """
-        name=kwargs.get('name')
+        name = kwargs.get('name')
         if self._conv_hyperparams:
             return self._conv_hyperparams.build_batch_norm(name=name)
         else:
-            return tf.keras.layers.BatchNormalization(momentum=self._default_batchnorm_momentum,name=name)
+            return tf.keras.layers.BatchNormalization(
+                momentum=self._default_batchnorm_momentum, name=name)
 
     # def Input(self,shape):
     #     """Builds an Input layer.
@@ -275,6 +285,7 @@ class _LayersOverride:
 
     def __getattr__(self, item):
         return getattr(tf.keras.layers, item)
+
 
 def mobilenet_v2(default_batchnorm_momentum=0.999,
                  conv_hyperparams=None,
