@@ -82,16 +82,15 @@ class Dataset(tf.keras.callbacks.Callback):
         return dataset
 
     def parse_text(self, line):
-
-        values = tf.strings.split([line]).values
+        values = tf.strings.split([line],' ').values
         image = tf.image.decode_image(tf.io.read_file(values[0]),
                                       channels=3,
                                       dtype=tf.float32)
         image.set_shape([None, None, 3])
         reshaped_data = tf.reshape(values[1:], [-1, 5])
         xmins = tf.strings.to_number(reshaped_data[:, 0], tf.float32)
-        xmaxs = tf.strings.to_number(reshaped_data[:, 1], tf.float32)
-        ymins = tf.strings.to_number(reshaped_data[:, 2], tf.float32)
+        xmaxs = tf.strings.to_number(reshaped_data[:, 2], tf.float32)
+        ymins = tf.strings.to_number(reshaped_data[:, 1], tf.float32)
         ymaxs = tf.strings.to_number(reshaped_data[:, 3], tf.float32)
         labels = tf.strings.to_number(reshaped_data[:, 4], tf.int64)
         image, bbox = get_random_data(image,
@@ -163,6 +162,8 @@ class Dataset(tf.keras.callbacks.Callback):
 
     def build(self):
         files = tf.io.gfile.glob(self.glob_path)
+        if len(files)==0:
+            raise ValueError('No file found')
         try:
             num = reduce(lambda x, y: x + y,
                          map(lambda file: self._get_num_from_name(file), files))

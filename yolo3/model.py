@@ -79,9 +79,9 @@ def darknet_yolo_body(inputs, num_anchors, num_classes):
                 tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()([x, darknet.layers[92].output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
-    y1=tf.keras.layers.Reshape((-1, tf.shape(y1)[1],tf.shape(y1)[2],num_anchors,num_classes +5),name='y1')(y1)
-    y2=tf.keras.layers.Reshape((-1, tf.shape(y2)[1],tf.shape(y2)[2],num_anchors,num_classes +5),name='y2')(y2)
-    y3=tf.keras.layers.Reshape((-1, tf.shape(y3)[1],tf.shape(y3)[2],num_anchors,num_classes +5),name='y3')(y3)
+    y1=tf.keras.layers.Reshape((tf.shape(y1)[1],tf.shape(y1)[2],num_anchors,num_classes +5),name='y1')(y1)
+    y2=tf.keras.layers.Reshape((tf.shape(y2)[1],tf.shape(y2)[2],num_anchors,num_classes +5),name='y2')(y2)
+    y3=tf.keras.layers.Reshape((tf.shape(y3)[1],tf.shape(y3)[2],num_anchors,num_classes +5),name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 def MobilenetSeparableConv2D(filters,
@@ -209,10 +209,9 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     ])
     x, y3 = make_last_layers_mobilenet(x, 25, 128,
                                        num_anchors * (num_classes + 5))
-
-    y1 = tf.keras.layers.Reshape((-1, tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5), name='y1')(y1)
-    y2 = tf.keras.layers.Reshape((-1, tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5), name='y2')(y2)
-    y3 = tf.keras.layers.Reshape((-1, tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5), name='y3')(y3)
+    y1 = tf.keras.layers.Reshape((tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5), name='y1')(y1)
+    y2 = tf.keras.layers.Reshape((tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5), name='y2')(y2)
+    y3 = tf.keras.layers.Reshape((tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 
