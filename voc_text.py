@@ -25,9 +25,9 @@ splits=[0.8,0.9,1]
 mutex = threading.Lock()
 def write_xmls(xmls):
     for xml_path in xmls:
-        mutex.acquire()
         image_path=tf.io.gfile.glob(os.path.join('/'.join(xml_path.split('/')[:-2]),'**',xml_path.split('/')[-1].split('.')[0]+'.jp*g'))[0]
         rand = tf.random.uniform([],0,1)
+        xml_root=ET.parse(xml_path.encode('utf-8')).getroot()
         if rand < splits[0]:
             file=train_file
             index=0
@@ -37,8 +37,7 @@ def write_xmls(xmls):
         else:
             file=test_file
             index = 2
-        xml_root=ET.parse(xml_path.encode('utf-8')).getroot()
-        file.write(image_path)
+        label=image_path
         for obj in xml_root.iter('object'):
             difficult = obj.find('difficult').text
             cls = obj.find('name').text
@@ -48,8 +47,10 @@ def write_xmls(xmls):
             xmlbox = obj.find('bndbox')
             b = (int(xmlbox.find('xmin').text), int(xmlbox.find('ymin').text), int(xmlbox.find('xmax').text),
                  int(xmlbox.find('ymax').text))
-            file.write(' '+' '.join([str(a) for a in b])+' '+ str(cls_id))
-        file.write('\n')
+            label+=' '+' '.join([str(a) for a in b])+' '+ str(cls_id)
+        label+='\n'
+        mutex.acquire()
+        file.write(label)
         nums[index]+=1
         mutex.release()
 pool=[]
