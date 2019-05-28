@@ -50,34 +50,31 @@ class Dataset(tf.keras.callbacks.Callback):
             [tf.float32, tf.float32, tf.float32])
         return image, (y1, y2, y3)
 
-    def tfrecord_dataset(self, files):
-        # with tf.device('/cpu:0'):
+    def _dataset_internal(self,files,dataset_builder,parser):
         dataset = tf.data.Dataset.from_tensor_slices(files)
-        """data generator for fit_generator"""
-
         if self.mode == DATASET_MODE.TRAIN:
             train_num = reduce(
                 lambda x, y: x + y,
                 map(lambda file: int(self._get_num_from_name(file)),files))
             dataset = dataset.interleave(
-                lambda file: tf.data.TFRecordDataset(file),
+                lambda file: dataset_builder(file),
                 cycle_length=len(files),
                 num_parallel_calls=AUTOTUNE).shuffle(train_num).map(
-                    self.parse_tfrecord, num_parallel_calls=AUTOTUNE).prefetch(
+                    parser, num_parallel_calls=AUTOTUNE).prefetch(
                         self.batch_size).batch(self.batch_size).repeat()
         elif self.mode == DATASET_MODE.VALIDATE:
             dataset = dataset.interleave(
-                lambda file: tf.data.TFRecordDataset(file),
+                lambda file: dataset_builder(file),
                 cycle_length=len(files),
                 num_parallel_calls=AUTOTUNE).map(
-                    self.parse_tfrecord, num_parallel_calls=AUTOTUNE).prefetch(
+                    parser, num_parallel_calls=AUTOTUNE).prefetch(
                         self.batch_size).batch(self.batch_size).repeat()
         elif self.mode == DATASET_MODE.TEST:
             dataset = dataset.interleave(
-                lambda file: tf.data.TFRecordDataset(file),
+                lambda file: dataset_builder(file),
                 cycle_length=len(files),
                 num_parallel_calls=AUTOTUNE).map(
-                    self.parse_tfrecord, num_parallel_calls=AUTOTUNE).prefetch(
+                    parser, num_parallel_calls=AUTOTUNE).prefetch(
                         self.batch_size).batch(self.batch_size)
         return dataset
 
@@ -93,6 +90,7 @@ class Dataset(tf.keras.callbacks.Callback):
         ymins = tf.strings.to_number(reshaped_data[:, 1], tf.float32)
         ymaxs = tf.strings.to_number(reshaped_data[:, 3], tf.float32)
         labels = tf.strings.to_number(reshaped_data[:, 4], tf.int64)
+
         image, bbox = get_random_data(image,
                                       xmins,
                                       xmaxs,
@@ -107,39 +105,9 @@ class Dataset(tf.keras.callbacks.Callback):
             [tf.float32, tf.float32, tf.float32])
         return image, (y1, y2, y3)
 
-    def text_dataset(self, files):
-        # with tf.device('/cpu:0'):
-        dataset = tf.data.Dataset.from_tensor_slices(files)
-
-        if self.mode == DATASET_MODE.TRAIN:
-            train_sum = reduce(
-                lambda x, y: x + y,
-                map(lambda file: int(self._get_num_from_name(file)),files))
-            dataset = dataset.interleave(
-                lambda file: tf.data.TextLineDataset(file),
-                cycle_length=len(files),
-                num_parallel_calls=AUTOTUNE).shuffle(train_sum).map(
-                    self.parse_text, num_parallel_calls=AUTOTUNE).prefetch(self.batch_size).batch(
-                        self.batch_size).repeat()
-        elif self.mode == DATASET_MODE.VALIDATE:
-            dataset = dataset.interleave(
-                lambda file: tf.data.TextLineDataset(file),
-                cycle_length=len(files),
-                num_parallel_calls=AUTOTUNE).map(
-                    self.parse_text, num_parallel_calls=AUTOTUNE).prefetch(self.batch_size).batch(
-                        self.batch_size).repeat()
-        elif self.mode == DATASET_MODE.TEST:
-            dataset = dataset.interleave(
-                lambda file: tf.data.TextLineDataset(file),
-                cycle_length=len(files),
-                num_parallel_calls=AUTOTUNE).map(
-                    self.parse_text, num_parallel_calls=AUTOTUNE).batch(
-                        self.batch_size).prefetch(self.batch_size)
-        return dataset
-
     def __init__(self,
                  glob_path: str,
-                 batch_size,
+                 batch_size: int,
                  anchors=None,
                  num_classes=None,
                  input_shapes=None,
@@ -172,6 +140,6 @@ class Dataset(tf.keras.callbacks.Callback):
                 'Please format file name like <name>_<number>.<extension>')
         else:
             if self.glob_path.endswith('.tfrecords'):
-                return self.tfrecord_dataset(files), num
+                return self._dataset_internal(files,tf.data.TFRecordDataset,self.parse_tfrecord), num
             elif self.glob_path.endswith('.txt'):
-                return self.text_dataset(files), num
+                return self._dataset_internal(files,tf.data.TextLineDataset,self.parse_text), num

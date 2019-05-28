@@ -36,12 +36,12 @@ class MAPCallback(tf.keras.callbacks.Callback):
         return ap
 
     def calculate_aps(self):
-        test_dataset_builder, test_num = Dataset(self.glob_path,
+        test_dataset_builder = Dataset(self.glob_path,
                                                  1,
                                                  self.input_shape,
                                                  mode=DATASET_MODE.TEST)
         bind(test_dataset_builder, self.parse_fn)
-        test_dataset = test_dataset_builder.build()
+        test_dataset,test_num = test_dataset_builder.build()
         true_res = {}
         pred_res = []
         idx = 0
@@ -58,7 +58,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
                 new_image_size = (width - (width % 32), height - (height % 32))
                 boxed_image, resized_image_shape = letterbox_image(
                     image, new_image_size)
-            output = self.model.predict(boxed_image)
+            output = self.model.predict(boxed_image.numpy())
             out_boxes, out_scores, out_classes = yolo_eval(
                 output,
                 self.anchors,
