@@ -16,7 +16,6 @@ class MAPCallback(tf.keras.callbacks.Callback):
              precision monotonically decreasing
         2nd) We compute the AP as the area under this curve by numerical integration.
     """
-
     def _voc_ap(self, rec, prec):
         # correct AP calculation
         # first append sentinel values at the end
@@ -34,13 +33,48 @@ class MAPCallback(tf.keras.callbacks.Callback):
         # and sum (\Delta recall) * prec
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
         return ap
+    def parse_tfrecord(self,example_proto):
+        feature_description = {
+            'image/encoded': tf.io.FixedLenFeature([], tf.string),
+            'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/label': tf.io.VarLenFeature(tf.int64)
+        }
+        features = tf.io.parse_single_example(example_proto, feature_description)
+        image = tf.image.decode_image(features['image/encoded'], channels=3, dtype=tf.float32)
+        image.set_shape([None, None, 3])
+        xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
+        xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
+        ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
+        ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
+        label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
+        bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+        return image, bbox
+
+    def parse_text(self,line):
+        values = tf.strings.split([line],' ').values
+        image = tf.image.decode_image(tf.io.read_file(values[0]),
+                                      channels=3,
+                                      dtype=tf.float32)
+        image.set_shape([None, None, 3])
+        reshaped_data = tf.reshape(values[1:], [-1, 5])
+        xmins = tf.strings.to_number(reshaped_data[:, 0], tf.float32)
+        xmaxs = tf.strings.to_number(reshaped_data[:, 2], tf.float32)
+        ymins = tf.strings.to_number(reshaped_data[:, 1], tf.float32)
+        ymaxs = tf.strings.to_number(reshaped_data[:, 3], tf.float32)
+        labels = tf.strings.to_number(reshaped_data[:, 4], tf.int64)
+        bbox = tf.concat([xmins, ymins, xmaxs, ymaxs, tf.cast(labels, tf.float32)], 0)
+        return image, bbox
 
     def calculate_aps(self):
         test_dataset_builder = Dataset(self.glob_path,
                                                  1,
-                                                 self.input_shape,
+                                                 input_shapes=self.input_shape,
                                                  mode=DATASET_MODE.TEST)
-        bind(test_dataset_builder, self.parse_fn)
+        bind(test_dataset_builder, self.parse_tfrecord)
+        bind(test_dataset_builder, self.parse_text)
         test_dataset,test_num = test_dataset_builder.build()
         true_res = {}
         pred_res = []
