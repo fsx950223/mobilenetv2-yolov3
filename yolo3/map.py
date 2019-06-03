@@ -107,9 +107,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
                         idx, out_classes[i].numpy(), out_scores[i].numpy(),
                         left, top, right, bottom
                     ])
-            true_res[idx] = []
-            for item in list(np.transpose(bbox)):
-                true_res[idx].append(item)
+            true_res[idx] = bbox.numpy()
             idx += 1
         end = timer()
         print((end - start) / test_num)
