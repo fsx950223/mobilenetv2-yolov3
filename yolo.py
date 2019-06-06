@@ -15,10 +15,11 @@ from yolo3.enum import OPT, BACKBONE
 from yolo3.map import MAPCallback
 import os
 from typing import List, Tuple
+from tensorflow_serving.apis import prediction_log_pb2,predict_pb2
 from tensorflow.python import debug as tf_debug
 
-if hasattr(tf, 'enable_eager_execution'):
-    tf.enable_eager_execution()
+# if hasattr(tf, 'enable_eager_execution'):
+#     tf.enable_eager_execution()
 tf.keras.backend.set_learning_phase(0)
 gpus = "0"
 os.environ["CUDA_VISIBLE_DEVICES"] = gpus
@@ -31,10 +32,12 @@ class YOLO(object):
         "model_config": {
             BACKBONE.MOBILENETV2: {
                 "input_size": (416, 416),
-                "model_path":
-                '../download/mobilenetv2_trained_weights_final (2).h5',
-                "anchors_path": 'model_data/yolo_anchors.txt',
-                "classes_path": 'model_data/voc_classes.txt',
+                "model_path":'../download/mobilenetv2_trained_weights_final (5).h5',
+                #"anchors_path": 'model_data/yolo_anchors.txt',
+                #"classes_path": 'model_data/voc_classes.txt',
+                # "model_path":"./logs/mobilenetv22019-05-24/ep009-loss19.673-val_loss19.141.h5",
+                "anchors_path": 'model_data/cci_anchors.txt',
+                "classes_path": 'model_data/cci.names',
                 "alpha": 1.4
             },
             BACKBONE.DARKNET53: {
@@ -70,7 +73,7 @@ class YOLO(object):
 
     def __init__(self, **kwargs):
         self.__dict__.update(self._defaults)  # set up default values
-        self.__dict__.update(kwargs)  # and update with user overrides
+        #self.__dict__.update(kwargs)  # and update with user overrides
         self.class_names = get_classes(
             self.model_config[self.backbone]['classes_path'])
         self.anchors = get_anchors(
@@ -171,7 +174,7 @@ class YOLO(object):
                 len(self.class_names),
                 self.input_image_shape,
                 score_threshold=self.score,
-                iou_threshold=self.nms))(model.output)
+                iou_threshold=self.nms),name='yolo')(model.output)
             self.yolo_model = tf.keras.Model(model.input, output)
         # Generate output tensor targets for filtered bounding boxes.
         if gpu_num >= 2:
@@ -194,6 +197,22 @@ class YOLO(object):
             }
             tf.saved_model.experimental.save(self.yolo_model, path,
                                              signature_def_map)
+        asset_extra=os.path.join(path,"assets.extra")
+        tf.io.gfile.mkdir(asset_extra)
+        with tf.io.TFRecordWriter(os.path.join(asset_extra,"tf_serving_warmup_requests")) as writer:
+            request = predict_pb2.PredictRequest()
+            request.model_spec.name = 'detection'
+            request.model_spec.signature_name = 'serving_default'
+            image = Image.open('../download/image3.jpeg')
+            scale = self.input_shape[0] / max(image.size)
+            if scale < 1:
+                image = image.resize((int(line * scale) for line in image.size),
+                                     Image.BILINEAR)
+            image_data = np.array(image, dtype='uint8')
+            image_data = np.expand_dims(image_data, 0)
+            request.inputs['predict_image:0'].CopyFrom(tf.make_tensor_proto(image_data))
+            log=prediction_log_pb2.PredictionLog(predict_log=prediction_log_pb2.PredictLog(request=request))
+            writer.write(log.SerializeToString())
 
     def export_tflite_model(self, path: str) -> None:
         converter = tf.lite.TFLiteConverter.from_session(
@@ -322,13 +341,31 @@ class YOLO(object):
     def close_session(self):
         self.sess.close()
 
+def detect_imgs(yolo,input):
+    with open(input) as file:
+        for image_path in file.readlines():
+            image_path=image_path.strip()
+            try:
+                if tf.executing_eagerly():
+                    content = tf.io.read_file(image_path)
+                    image = tf.image.decode_image(content,
+                                                  channels=3,
+                                                  dtype=tf.float32)
+                else:
+                    image = Image.open(image_path)
+            except:
+                print('Open Error! Try again!')
+            else:
+                r_image = yolo.detect_image(image)
+                r_image.save(os.path.join('chengyun',image_path.split('/')[-1]))
+    yolo.close_session()
 
 def detect_img(yolo):
     while True:
         image_path = input('Input image filename:')
         try:
             if tf.executing_eagerly():
-                content = tf.io.read_file(image_path, 'rb')
+                content = tf.io.read_file(image_path)
                 image = tf.image.decode_image(content,
                                               channels=3,
                                               dtype=tf.float32)
@@ -364,6 +401,7 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
     font = ImageFont.truetype(font='font/FiraMono-Medium.otf',
                               size=30)
     thickness = 1
+    frame_count = 0
     while True:
         return_value, frame = vid.read()
         image = Image.fromarray(frame)
@@ -393,6 +431,13 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
                      tuple(text_origin + label_size)],
                     fill=yolo.colors[c])
                 draw.text(text_origin, label, fill=(0, 0, 0), font=font)
+                frame_count+=1
+                if frame_count == 100:
+                    for tracker in trackers:
+                        del tracker
+                    trackers=[]
+                    frame_count=0
+                    detected=False
         else:
             if tf.executing_eagerly():
                 boxes, scores, classes = yolo.detect_image(image_data,False)
@@ -446,6 +491,7 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
                     thickness=2)
         cv2.namedWindow("result", cv2.WINDOW_NORMAL)
         cv2.imshow("result", result)
+
         if isOutput:
             out.write(result)
         if cv2.waitKey(1) & 0xFF == ord('q'):
