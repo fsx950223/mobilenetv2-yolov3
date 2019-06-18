@@ -1,20 +1,27 @@
 from enum import Enum, unique
 
+@unique
+class MODE(Enum):
+    TRAIN = 0
+    IMAGE = 1
+    VIDEO = 2
+    TFLITE = 3
+    SERVING = 4
+    MAP = 5
+    PRUNE = 6
 
 @unique
 class OPT(Enum):
-    NORMAL = 0
-    XLA = 1
-    DEBUG = 2
-    MKL = 3
+    XLA = 0
+    DEBUG = 1
+    MKL = 2
 
 
 @unique
 class BACKBONE(Enum):
     MOBILENETV2 = 0
-    INCEPTION_RESNET2 = 1
-    DENSENET = 2
-    DARKNET53 = 3
+    EFFICIENTNET = 1
+    DARKNET53 = 2
 
 
 @unique

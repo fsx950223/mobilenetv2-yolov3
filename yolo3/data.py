@@ -48,6 +48,10 @@ class Dataset(tf.keras.callbacks.Callback):
             preprocess_true_boxes,
             [bbox, self.input_shape, self.anchors, self.num_classes],
             [tf.float32, tf.float32, tf.float32])
+        y1.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
+        y2.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
+        y3.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
+
         return image, (y1, y2, y3)
 
     def _dataset_internal(self,files,dataset_builder,parser):

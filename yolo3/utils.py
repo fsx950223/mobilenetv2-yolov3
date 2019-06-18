@@ -1,7 +1,6 @@
 """Miscellaneous utility functions."""
 
 from functools import reduce
-import cv2
 import tensorflow as tf
 import numpy as np
 
@@ -44,6 +43,7 @@ def random_gamma(image, min, max):
 
 
 def random_blur(image):
+    import cv2
     gaussian_blur = lambda image: cv2.GaussianBlur(image.numpy(), (5, 5), 0)
     h, w = image.shape.as_list()[:2]
     image = tf.py_function(gaussian_blur, [image], tf.float32)
@@ -55,7 +55,7 @@ def get_anchors(anchors_path):
     with open(anchors_path) as f:
         anchors = f.readline()
     anchors = [float(x) for x in anchors.split(',')]
-    return np.array(anchors).reshape(-1, 2)
+    return np.array(anchors,np.float32).reshape(-1, 2)
 
 
 def bind(instance, func, as_name=None):
@@ -195,6 +195,7 @@ def get_random_data(image,
         xmax = xmax * nw / iw + dx
         ymin = ymin * nh / ih + dy
         ymax = ymax * nh / ih + dy
+
     bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)

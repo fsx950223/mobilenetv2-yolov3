@@ -70,9 +70,9 @@ class MAPCallback(tf.keras.callbacks.Callback):
 
     def calculate_aps(self):
         test_dataset_builder = Dataset(self.glob_path,
-                                                 1,
-                                                 input_shapes=self.input_shape,
-                                                 mode=DATASET_MODE.TEST)
+                                         self.batch_size,
+                                         input_shapes=self.input_shape,
+                                         mode=DATASET_MODE.TEST)
         bind(test_dataset_builder, self.parse_tfrecord)
         bind(test_dataset_builder, self.parse_text)
         test_dataset,test_num = test_dataset_builder.build()
@@ -181,7 +181,6 @@ class MAPCallback(tf.keras.callbacks.Callback):
                  input_shapes,
                  anchors,
                  class_names,
-                 parse_fn,
                  score=.0,
                  iou=.5,
                  nms=.5,
@@ -197,7 +196,6 @@ class MAPCallback(tf.keras.callbacks.Callback):
         self.score = score
         self.iou = iou
         self.nms = nms
-        self.parse_fn = parse_fn
         self.batch_size = batch_size
 
     def on_train_end(self, logs={}):
