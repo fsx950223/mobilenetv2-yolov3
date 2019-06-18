@@ -1,12 +1,13 @@
 """YOLO_v3 Model Defined in Keras."""
 
-from functools import wraps
+from functools import wraps,partial
 from yolo3.enum import BOX_LOSS
 import numpy as np
 import tensorflow as tf
 from typing import List, Tuple
 from yolo3.utils import compose
 from yolo3.override import mobilenet_v2
+from yolo3.efficient_keras_model import EfficientNetB4,MBConvBlock,get_model_params,BlockArgs
 
 
 @wraps(tf.keras.layers.Conv2D)
@@ -209,70 +210,102 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     ])
     x, y3 = make_last_layers_mobilenet(x, 25, 128,
                                        num_anchors * (num_classes + 5))
-    y1 = tf.keras.layers.Reshape((tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5), name='y1')(y1)
-    y2 = tf.keras.layers.Reshape((tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5), name='y2')(y2)
-    y3 = tf.keras.layers.Reshape((tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5), name='y3')(y3)
+    y1=tf.keras.layers.Lambda(lambda y:tf.reshape(y,[-1,tf.shape(y)[1],tf.shape(y)[2],num_anchors,num_classes + 5]), name='y1')(y1)
+    y2=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y2')(y2)
+    y3=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y3')(y3)
+    # y1 = tf.keras.layers.Reshape((tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5), name='y1')(y1)
+    # y2 = tf.keras.layers.Reshape((tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5), name='y2')(y2)
+    # y3 = tf.keras.layers.Reshape((tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
+def make_last_layers_efficientnet(x,block_args,global_params):
+    num_filters = block_args.input_filters * block_args.expand_ratio
+    block_args._replace(input_filters=num_filters*2)
+    x = compose(
+        tf.keras.layers.Conv2D(num_filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False),
+        tf.keras.layers.BatchNormalization(momentum=0.9),
+        tf.keras.layers.ReLU(6.),
+        MBConvBlock(block_args, global_params,drop_connect_rate=global_params.drop_connect_rate),
+        tf.keras.layers.Conv2D(num_filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False),
+        tf.keras.layers.BatchNormalization(momentum=0.9),
+        tf.keras.layers.ReLU(6.),
+        MBConvBlock(block_args, global_params,drop_connect_rate=global_params.drop_connect_rate),
+        tf.keras.layers.Conv2D(num_filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False),
+        tf.keras.layers.BatchNormalization(momentum=0.9),
+        tf.keras.layers.ReLU(6.))(x)
+    y = compose(
+        MBConvBlock(block_args,global_params,drop_connect_rate=global_params.drop_connect_rate),
+        tf.keras.layers.Conv2D(block_args.output_filters,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False))(x)
+    return x, y
 
-def inception_block(filters, kernel):
-    return compose(
-        tf.keras.layers.Conv2D(
-            filters,
-            kernel,
-            use_bias=False,
-            kernel_regularizer=tf.keras.regularizers.l2(5e-4)),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.LeakyReLU(alpha=0.1))
-
-
-def inception_yolo_body(inputs, num_anchors, num_classes):
-    inception = tf.keras.applications.InceptionResNetV2(input_tensor=inputs,
-                                                        include_top=False,
-                                                        weights='imagenet')
-    x, y1 = make_last_layers(inception.output, 512,
-                             num_anchors * (num_classes + 5))
-    x = compose(DarknetConv2D_BN_Leaky(256, (1, 1)),
-                tf.keras.layers.UpSampling2D(2))(x)
+def efficientnet_yolo_body(_,model_name,num_anchors,override_params):
+    num_classes=override_params['num_classes']
+    _,global_params,input_shape=get_model_params(model_name,override_params)
+    efficientnet=EfficientNetB4(
+        include_top=False,
+        weights='imagenet',
+        classes=num_classes,
+        input_shape=(input_shape,input_shape,3))
+    blocks_args = BlockArgs(
+        kernel_size=3,
+        num_repeat=1,
+        input_filters=512,
+        output_filters=num_anchors * (num_classes + 5),
+        expand_ratio=6,
+        id_skip=True,
+        se_ratio=0.25,
+        strides=[1,1]
+    )
+    x, y1 = make_last_layers_efficientnet(efficientnet.output,blocks_args, global_params)
+    x = compose(
+        tf.keras.layers.Conv2D(256,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name='block_20_conv'),
+        tf.keras.layers.BatchNormalization(momentum=0.9, name='block_20_BN'),
+        tf.keras.layers.ReLU(6., name='block_20_relu6'),
+        tf.keras.layers.UpSampling2D(2))(x)
+    blocks_args._replace(input_filters=256)
     x = tf.keras.layers.Concatenate()([
         x,
-        inception_block(256,
-                        (3, 3))(inception.get_layer('activation_160').output)
+        MBConvBlock(blocks_args, global_params,drop_connect_rate=0.2)(efficientnet.get_layer('lambda_87').output)
     ])
-    x, y2 = make_last_layers(x, 256, num_anchors * (num_classes + 5))
-
-    x = compose(DarknetConv2D_BN_Leaky(128, (1, 1)),
-                tf.keras.layers.UpSampling2D(2))(x)
+    x, y2 = make_last_layers_efficientnet(x, blocks_args, global_params)
+    x = compose(
+        tf.keras.layers.Conv2D(128,
+                               kernel_size=1,
+                               padding='same',
+                               use_bias=False,
+                               name='block_24_conv'),
+        tf.keras.layers.BatchNormalization(momentum=0.9, name='block_24_BN'),
+        tf.keras.layers.ReLU(6., name='block_24_relu6'),
+        tf.keras.layers.UpSampling2D(2))(x)
+    blocks_args._replace(input_filters=128)
     x = tf.keras.layers.Concatenate()([
         x,
-        inception_block(128,
-                        (6, 6))(inception.get_layer('activation_73').output)
+        MBConvBlock(blocks_args, global_params,drop_connect_rate=0.2)(efficientnet.get_layer('lambda_39').output)
     ])
-    x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
-
-    return tf.keras.models.Model(inputs, [y1, y2, y3])
-
-
-def densenet_yolo_body(inputs, num_anchors, num_classes):
-    densenet = tf.keras.applications.DenseNet201(input_tensor=inputs,
-                                                 include_top=False,
-                                                 weights='imagenet')
-    x, y1 = make_last_layers(densenet.output, 512,
-                             num_anchors * (num_classes + 5))
-    x = compose(DarknetConv2D_BN_Leaky(256, (1, 1)),
-                tf.keras.layers.UpSampling2D(2))(x)
-    x = tf.keras.layers.Concatenate()(
-        [x, densenet.get_layer('pool4_relu').output])
-    x, y2 = make_last_layers(x, 256, num_anchors * (num_classes + 5))
-
-    x = compose(DarknetConv2D_BN_Leaky(128, (1, 1)),
-                tf.keras.layers.UpSampling2D(2))(x)
-    x = tf.keras.layers.Concatenate()(
-        [x, densenet.get_layer('pool3_relu').output])
-    x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
-
-    return tf.keras.models.Model(inputs, [y1, y2, y3])
-
+    x, y3 = make_last_layers_efficientnet(x, blocks_args, global_params)
+    y1 = tf.keras.layers.Lambda(
+        lambda y: tf.reshape(y, [-1, tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y1')(y1)
+    y2 = tf.keras.layers.Lambda(
+        lambda y: tf.reshape(y, [-1, tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y2')(y2)
+    y3 = tf.keras.layers.Lambda(
+        lambda y: tf.reshape(y, [-1, tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y3')(y3)
+    return tf.keras.models.Model(efficientnet.input, [y1, y2, y3])
 
 def yolo_head(feats: tf.Tensor,
               anchors: np.ndarray,
@@ -369,22 +402,19 @@ def yolo_eval(yolo_outputs: List[tf.Tensor],
         box_scores.append(_box_scores)
     boxes = tf.concat(boxes, axis=0)
     box_scores = tf.concat(box_scores, axis=0)
-
-    mask = box_scores >= score_threshold
     max_boxes_tensor = tf.constant(max_boxes, dtype=tf.int32)
     boxes_ = []
     scores_ = []
     classes_ = []
     for c in range(num_classes):
         # TODO: use keras backend instead of tf.
-        class_boxes = tf.boolean_mask(boxes, mask[:, c])
-        class_box_scores = tf.boolean_mask(box_scores[:, c], mask[:, c])
-        nms_index = tf.image.non_max_suppression(class_boxes,
-                                                 class_box_scores,
+        nms_index = tf.image.non_max_suppression(boxes,
+                                                 box_scores[:,c],
                                                  max_boxes_tensor,
-                                                 iou_threshold=iou_threshold)
-        class_boxes = tf.gather(class_boxes, nms_index)
-        class_box_scores = tf.gather(class_box_scores, nms_index)
+                                                 iou_threshold=iou_threshold,
+                                                 score_threshold=score_threshold)
+        class_boxes = tf.gather(boxes, nms_index)
+        class_box_scores = tf.gather(box_scores[:,c], nms_index)
         classes = tf.ones_like(class_box_scores, tf.int32) * c
         boxes_.append(class_boxes)
         scores_.append(class_box_scores)
@@ -394,7 +424,6 @@ def yolo_eval(yolo_outputs: List[tf.Tensor],
     classes_ = tf.concat(classes_, axis=0, name='classes')
     boxes_ = tf.cast(boxes_, tf.int32, name='boxes')
     return boxes_, scores_, classes_
-
 
 def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     '''Preprocess true boxes to training input format
@@ -421,7 +450,7 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
     true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
 
-    grid_shapes = [input_shape // [32, 16, 8][l] for l in range(num_layers)]
+    grid_shapes = [np.round(input_shape / [32, 16, 8][l]).astype(np.int32) for l in range(num_layers)]
     y_true = [
         np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(
             anchor_mask[l]), 5 + num_classes),
@@ -460,8 +489,8 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
                 k = anchor_mask[l].index(n)
                 c = true_boxes[t, 4].astype('int32')
                 y_true[l][j, i, k, 0:4] = true_boxes[t, 0:4]
-                y_true[l][j, i, k, 4] = 1
-                y_true[l][j, i, k, 5 + c] = 1
+                y_true[l][j, i, k, 4] = 1.
+                y_true[l][j, i, k, 5 + c] = 1.
 
     return y_true[0], y_true[1], y_true[2]
 
@@ -536,11 +565,10 @@ def box_giou(b1, b2):
     giou = iou - (enclose_area - union_area) / enclose_area
     return giou
 
+if tf.version.VERSION.startswith('1.'):
 
-if tf.version.VERSION == '1.13.1':
-
-    def YoloLoss(yolo_output,
-                 y_true,
+    def YoloLoss(y_true,
+                 yolo_output,
                  idx,
                  anchors,
                  ignore_thresh: float = .5,
@@ -598,7 +626,7 @@ if tf.version.VERSION == '1.13.1':
             giou_loss = tf.reduce_sum(giou_loss) / mf
             loss += giou_loss + confidence_loss + class_loss
             if print_loss:
-                tf.print(giou_loss, confidence_loss, class_loss)
+                tf.print(str(idx)+':',giou_loss, confidence_loss, class_loss,tf.reduce_sum(ignore_mask))
         elif box_loss == BOX_LOSS.MSE:
             grid_shape = tf.cast(tf.shape(yolo_output)[1:3], y_true.dtype)
             raw_true_xy = y_true[..., :2] * grid_shape[::-1] - grid
@@ -620,7 +648,6 @@ if tf.version.VERSION == '1.13.1':
                          tf.reduce_sum(ignore_mask))
         return loss
 else:
-
     class YoloLoss(tf.losses.Loss):
 
         def __init__(self,
@@ -675,10 +702,7 @@ else:
 
             if self.box_loss == BOX_LOSS.GIOU:
                 giou = box_giou(pred_box[..., :4], y_true[..., :4])
-                box_loss_scale = 2 - y_true[..., 2:3] * y_true[
-                    ..., 3:4] / tf.cast(tf.reduce_prod(input_shape), tf.float32)
-                giou_loss = object_mask * box_loss_scale * (
-                    1 - tf.expand_dims(giou, -1))
+                giou_loss = object_mask * (1 - tf.expand_dims(giou, -1))
                 giou_loss = tf.reduce_sum(giou_loss) / mf
                 loss += giou_loss + confidence_loss + class_loss
                 if self.print_loss:
