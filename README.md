@@ -4,9 +4,8 @@ Tensorflow implementation mobilenetv2-yolov3 inspired by [keras-yolo3](https://g
 # Update
 Backend:
 - [x] MobilenetV2
-- [x] Densenet
+- [x] Efficientnet
 - [x] Darknet53
-- [ ] Inception-ResV2
 
 Callback:
 - [x] mAP
@@ -26,7 +25,7 @@ Tensorflow:
 - [x] Use tf.data to load dataset
 - [x] Remove image shape input when use session
 - [ ] Convert model to tensorflow lite model
-- [ ] Multi GPU training support
+- [x] Multi GPU training support
 - [x] Tensorflow Serving JAVA Client
 - [ ] Tensorflow Serving Server Build and Plugins develop 
 
