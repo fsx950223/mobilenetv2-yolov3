@@ -213,34 +213,34 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     y1=tf.keras.layers.Lambda(lambda y:tf.reshape(y,[-1,tf.shape(y)[1],tf.shape(y)[2],num_anchors,num_classes + 5]), name='y1')(y1)
     y2=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y2')(y2)
     y3=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y3')(y3)
-    # y1 = tf.keras.layers.Reshape((tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5), name='y1')(y1)
-    # y2 = tf.keras.layers.Reshape((tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5), name='y2')(y2)
-    # y3 = tf.keras.layers.Reshape((tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
 
 def make_last_layers_efficientnet(x,block_args,global_params):
+    if global_params.data_format == 'channels_first':
+        channel_axis = 1
+    else:
+        channel_axis = -1
     num_filters = block_args.input_filters * block_args.expand_ratio
-    block_args._replace(input_filters=num_filters*2)
     x = compose(
         tf.keras.layers.Conv2D(num_filters,
                                kernel_size=1,
                                padding='same',
                                use_bias=False),
-        tf.keras.layers.BatchNormalization(momentum=0.9),
+        tf.keras.layers.BatchNormalization(axis=channel_axis,epsilon=global_params.batch_norm_epsilon,momentum=global_params.batch_norm_momentum),
         tf.keras.layers.ReLU(6.),
         MBConvBlock(block_args, global_params,drop_connect_rate=global_params.drop_connect_rate),
         tf.keras.layers.Conv2D(num_filters,
                                kernel_size=1,
                                padding='same',
                                use_bias=False),
-        tf.keras.layers.BatchNormalization(momentum=0.9),
+        tf.keras.layers.BatchNormalization(axis=channel_axis,epsilon=global_params.batch_norm_epsilon,momentum=global_params.batch_norm_momentum),
         tf.keras.layers.ReLU(6.),
         MBConvBlock(block_args, global_params,drop_connect_rate=global_params.drop_connect_rate),
         tf.keras.layers.Conv2D(num_filters,
                                kernel_size=1,
                                padding='same',
                                use_bias=False),
-        tf.keras.layers.BatchNormalization(momentum=0.9),
+        tf.keras.layers.BatchNormalization(axis=channel_axis,epsilon=global_params.batch_norm_epsilon,momentum=global_params.batch_norm_momentum),
         tf.keras.layers.ReLU(6.))(x)
     y = compose(
         MBConvBlock(block_args,global_params,drop_connect_rate=global_params.drop_connect_rate),
@@ -251,60 +251,61 @@ def make_last_layers_efficientnet(x,block_args,global_params):
     return x, y
 
 def efficientnet_yolo_body(_,model_name,num_anchors,override_params):
-    num_classes=override_params['num_classes']
     _,global_params,input_shape=get_model_params(model_name,override_params)
+    num_classes = global_params.num_classes
+    if global_params.data_format == 'channels_first':
+        channel_axis = 1
+    else:
+        channel_axis = -1
     efficientnet=EfficientNetB4(
         include_top=False,
         weights='imagenet',
         classes=num_classes,
         input_shape=(input_shape,input_shape,3))
-    blocks_args = BlockArgs(
+    block_args = BlockArgs(
         kernel_size=3,
         num_repeat=1,
         input_filters=512,
         output_filters=num_anchors * (num_classes + 5),
-        expand_ratio=6,
+        expand_ratio=1,
         id_skip=True,
         se_ratio=0.25,
         strides=[1,1]
     )
-    x, y1 = make_last_layers_efficientnet(efficientnet.output,blocks_args, global_params)
+    x, y1 = make_last_layers_efficientnet(efficientnet.output,block_args, global_params)
     x = compose(
         tf.keras.layers.Conv2D(256,
                                kernel_size=1,
                                padding='same',
                                use_bias=False,
                                name='block_20_conv'),
-        tf.keras.layers.BatchNormalization(momentum=0.9, name='block_20_BN'),
+        tf.keras.layers.BatchNormalization(axis=channel_axis, momentum=0.9, name='block_20_BN'),
         tf.keras.layers.ReLU(6., name='block_20_relu6'),
         tf.keras.layers.UpSampling2D(2))(x)
-    blocks_args._replace(input_filters=256)
+    block_args=block_args._replace(input_filters=256)
     x = tf.keras.layers.Concatenate()([
         x,
-        MBConvBlock(blocks_args, global_params,drop_connect_rate=0.2)(efficientnet.get_layer('lambda_87').output)
+        efficientnet.get_layer('swish_65').output
     ])
-    x, y2 = make_last_layers_efficientnet(x, blocks_args, global_params)
+    x, y2 = make_last_layers_efficientnet(x, block_args, global_params)
     x = compose(
         tf.keras.layers.Conv2D(128,
                                kernel_size=1,
                                padding='same',
                                use_bias=False,
                                name='block_24_conv'),
-        tf.keras.layers.BatchNormalization(momentum=0.9, name='block_24_BN'),
+        tf.keras.layers.BatchNormalization(axis=channel_axis,momentum=0.9, name='block_24_BN'),
         tf.keras.layers.ReLU(6., name='block_24_relu6'),
         tf.keras.layers.UpSampling2D(2))(x)
-    blocks_args._replace(input_filters=128)
+    block_args=block_args._replace(input_filters=128)
     x = tf.keras.layers.Concatenate()([
         x,
-        MBConvBlock(blocks_args, global_params,drop_connect_rate=0.2)(efficientnet.get_layer('lambda_39').output)
+        efficientnet.get_layer('swish_29').output
     ])
-    x, y3 = make_last_layers_efficientnet(x, blocks_args, global_params)
-    y1 = tf.keras.layers.Lambda(
-        lambda y: tf.reshape(y, [-1, tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y1')(y1)
-    y2 = tf.keras.layers.Lambda(
-        lambda y: tf.reshape(y, [-1, tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y2')(y2)
-    y3 = tf.keras.layers.Lambda(
-        lambda y: tf.reshape(y, [-1, tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y3')(y3)
+    x, y3 = make_last_layers_efficientnet(x, block_args, global_params)
+    y1 = tf.keras.layers.Reshape((y1.shape[1], y1.shape[2], num_anchors, num_classes + 5), name='y1')(y1)
+    y2 = tf.keras.layers.Reshape((y2.shape[1], y2.shape[2], num_anchors, num_classes + 5), name='y2')(y2)
+    y3 = tf.keras.layers.Reshape((y3.shape[1], y3.shape[2], num_anchors, num_classes + 5), name='y3')(y3)
     return tf.keras.models.Model(efficientnet.input, [y1, y2, y3])
 
 def yolo_head(feats: tf.Tensor,

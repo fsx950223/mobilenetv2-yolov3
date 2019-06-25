@@ -248,8 +248,6 @@ def get_model_params(model_name, override_params=None):
     # in global_params.
     global_params = global_params._replace(**override_params)
 
-  #print('global_params= %s', global_params)
-  #print('blocks_args= %s', blocks_args)
   return blocks_args, global_params, input_shape
 
 class EfficientConv2DKernelInitializer(tf.keras.initializers.Initializer):
@@ -305,6 +303,11 @@ class EfficientDenseKernelInitializer(tf.keras.initializers.Initializer):
 conv_kernel_initializer = EfficientConv2DKernelInitializer()
 dense_kernel_initializer = EfficientDenseKernelInitializer()
 
+class Swish(tf.keras.layers.Layer):
+    def call(self, inputs):
+        inputs=tf.convert_to_tensor(inputs)
+        return inputs * tf.sigmoid(inputs)
+
 class DropConnect(tf.keras.layers.Layer):
 
     def __init__(self, drop_connect_rate=0., **kwargs):
@@ -335,7 +338,6 @@ class DropConnect(tf.keras.layers.Layer):
 
 def round_filters(filters, global_params):
     """Round number of filters based on depth multiplier."""
-    orig_f = filters
     multiplier = global_params.width_coefficient
     divisor = global_params.depth_divisor
     min_depth = global_params.min_depth
@@ -348,7 +350,7 @@ def round_filters(filters, global_params):
     # Make sure that round down does not go down by more than 10%.
     if new_filters < 0.9 * filters:
         new_filters += divisor
-    # print('round_filter input={} output={}'.format(orig_f, new_filters))
+
     return int(new_filters)
 
 
@@ -380,7 +382,8 @@ def SEBlock(block_args, global_params):
             padding='same',
             use_bias=True
         )(x)
-        x = tf.keras.layers.Lambda(tf.nn.swish)(x)
+        x = Swish()(x)
+        
         # Excite
         x = tf.keras.layers.Conv2D(
             filters,
@@ -428,7 +431,8 @@ def MBConvBlock(block_args, global_params, drop_connect_rate=None):
                 momentum=batch_norm_momentum,
                 epsilon=batch_norm_epsilon
             )(x)
-            x = tf.keras.layers.Lambda(tf.nn.swish)(x)
+            x = Swish()(x)
+            
         else:
             x = inputs
 
@@ -444,7 +448,8 @@ def MBConvBlock(block_args, global_params, drop_connect_rate=None):
             momentum=batch_norm_momentum,
             epsilon=batch_norm_epsilon
         )(x)
-        x = tf.keras.layers.Lambda(tf.nn.swish)(x)
+        x = Swish()(x)
+        
 
         if has_se:
             x = SEBlock(block_args, global_params)(x)
@@ -478,16 +483,20 @@ def MBConvBlock(block_args, global_params, drop_connect_rate=None):
     return block
 
 
-def EfficientNet(input_shape, block_args_list, global_params, include_top=True, pooling=None):
+def EfficientNet(input_shape, block_args_list, global_params, include_top=True, pooling=None,input_tensor=None):
     batch_norm_momentum = global_params.batch_norm_momentum
     batch_norm_epsilon = global_params.batch_norm_epsilon
+
+    # Stem part
+    if input_tensor is not None:
+        inputs=input_tensor
+    else:
+        inputs = tf.keras.layers.Input(shape=input_shape)
+
     if global_params.data_format == 'channels_first':
         channel_axis = 1
     else:
         channel_axis = -1
-
-    # Stem part
-    inputs = tf.keras.layers.Input(shape=input_shape)
     x = inputs
     x = tf.keras.layers.Conv2D(
         filters=round_filters(32, global_params),
@@ -502,7 +511,8 @@ def EfficientNet(input_shape, block_args_list, global_params, include_top=True, 
         momentum=batch_norm_momentum,
         epsilon=batch_norm_epsilon
     )(x)
-    x = tf.keras.layers.Lambda(tf.nn.swish)(x)
+    x = Swish()(x)
+    
 
     # Blocks part
     block_idx = 1
@@ -546,7 +556,8 @@ def EfficientNet(input_shape, block_args_list, global_params, include_top=True, 
         momentum=batch_norm_momentum,
         epsilon=batch_norm_epsilon
     )(x)
-    x = tf.keras.layers.Lambda(tf.nn.swish)(x)
+    x = Swish()(x)
+    
 
     if include_top:
         x = tf.keras.layers.GlobalAveragePooling2D(data_format=global_params.data_format)(x)
@@ -565,7 +576,7 @@ def EfficientNet(input_shape, block_args_list, global_params, include_top=True, 
     return model
 
 
-def _get_model_by_name(model_name, input_shape=None, include_top=True, weights=None, classes=1000, pooling=None):
+def _get_model_by_name(model_name, input_shape=None, include_top=True, weights=None, classes=1000, pooling=None,input_tensor=None):
     """Re-Implementation of EfficientNet for Keras
 
     Reference:
@@ -614,7 +625,7 @@ def _get_model_by_name(model_name, input_shape=None, include_top=True, weights=N
     if input_shape is None:
         input_shape = (default_input_shape, default_input_shape, 3)
 
-    model = EfficientNet(input_shape, block_agrs_list, global_params, include_top=include_top, pooling=pooling)
+    model = EfficientNet(input_shape, block_agrs_list, global_params, include_top=include_top, pooling=pooling,input_tensor=input_tensor)
 
 
     if weights:
@@ -654,9 +665,9 @@ def EfficientNetB3(include_top=True, input_shape=None, weights=None, classes=100
                               weights=weights, classes=classes, pooling=pooling)
 
 
-def EfficientNetB4(include_top=True, input_shape=None, weights=None, classes=1000, pooling=None):
+def EfficientNetB4(include_top=True, input_shape=None, weights=None, classes=1000, pooling=None,input_tensor=None):
     return _get_model_by_name('efficientnet-b4', include_top=include_top, input_shape=input_shape,
-                              weights=weights, classes=classes, pooling=pooling)
+                              weights=weights, classes=classes, pooling=pooling,input_tensor=input_tensor)
 
 
 def EfficientNetB5(include_top=True, input_shape=None, weights=None, classes=1000, pooling=None):
@@ -672,13 +683,3 @@ def EfficientNetB6(include_top=True, input_shape=None, weights=None, classes=100
 def EfficientNetB7(include_top=True, input_shape=None, weights=None, classes=1000, pooling=None):
     return _get_model_by_name('efficientnet-b7', include_top=include_top, input_shape=input_shape,
                               weights=weights, classes=classes, pooling=pooling)
-
-
-EfficientNetB0.__doc__ = _get_model_by_name.__doc__
-EfficientNetB1.__doc__ = _get_model_by_name.__doc__
-EfficientNetB2.__doc__ = _get_model_by_name.__doc__
-EfficientNetB3.__doc__ = _get_model_by_name.__doc__
-EfficientNetB4.__doc__ = _get_model_by_name.__doc__
-EfficientNetB5.__doc__ = _get_model_by_name.__doc__
-EfficientNetB6.__doc__ = _get_model_by_name.__doc__
-EfficientNetB7.__doc__ = _get_model_by_name.__doc__
