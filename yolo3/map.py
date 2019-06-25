@@ -33,6 +33,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
         # and sum (\Delta recall) * prec
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
         return ap
+
     def parse_tfrecord(self,example_proto):
         feature_description = {
             'image/encoded': tf.io.FixedLenFeature([], tf.string),
@@ -76,15 +77,16 @@ class MAPCallback(tf.keras.callbacks.Callback):
         bind(test_dataset_builder, self.parse_tfrecord)
         bind(test_dataset_builder, self.parse_text)
         test_dataset,test_num = test_dataset_builder.build()
+        options = tf.data.Options()
+        options.experimental_distribute.auto_shard = False
+        test_dataset = test_dataset.with_options(options)
         true_res = {}
         pred_res = []
         idx = 0
         APs = {}
         start = timer()
-        for image, bbox in test_dataset:
+        for image, bbox in test_dataset.take(10):
             if self.input_shape != (None, None):
-                assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
-                assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
                 boxed_image, resized_image_shape = letterbox_image(
                     image, tuple(reversed(self.input_shape)))
             else:
@@ -107,7 +109,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
                         idx, out_classes[i].numpy(), out_scores[i].numpy(),
                         left, top, right, bottom
                     ])
-            true_res[idx] = bbox.numpy()
+            true_res[idx] = tf.transpose(bbox[0]).numpy()
             idx += 1
         end = timer()
         print((end - start) / test_num)
@@ -181,7 +183,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
                  input_shapes,
                  anchors,
                  class_names,
-                 score=.0,
+                 score=0.,
                  iou=.5,
                  nms=.5,
                  batch_size=1):
