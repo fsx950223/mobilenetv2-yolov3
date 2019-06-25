@@ -4,6 +4,7 @@ from yolo3.utils import get_random_data
 from yolo3.model import preprocess_true_boxes
 from yolo3.enum import DATASET_MODE
 from random import random
+import tensorflow_datasets as tfds
 import math
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -132,7 +133,9 @@ class Dataset(tf.keras.callbacks.Callback):
     def _get_num_from_name(self, name):
         return int(name.split('/')[-1].split('.')[0].split('_')[-1])
 
-    def build(self):
+    def build(self,split=None):
+        if self.glob_path in tfds.list_builders():
+            return tfds.load(name=self.glob_path, split=split, with_info=True,as_supervised=True,try_gcs=tfds.is_dataset_on_gcs(self.glob_path))
         files = tf.io.gfile.glob(self.glob_path)
         if len(files)==0:
             raise ValueError('No file found')
@@ -143,7 +146,15 @@ class Dataset(tf.keras.callbacks.Callback):
             raise ValueError(
                 'Please format file name like <name>_<number>.<extension>')
         else:
-            if self.glob_path.endswith('.tfrecords'):
-                return self._dataset_internal(files,tf.data.TFRecordDataset,self.parse_tfrecord), num
-            elif self.glob_path.endswith('.txt'):
-                return self._dataset_internal(files,tf.data.TextLineDataset,self.parse_text), num
+            tfrecords=list(filter(lambda file:file.endswith('.tfrecords'),files))
+            txts=list(filter(lambda file: file.endswith('.txt'), files))
+            if len(tfrecords)>0:
+                tfrecords_dataset=self._dataset_internal(tfrecords,tf.data.TFRecordDataset, self.parse_tfrecord)
+            if len(txts) > 0:
+                txts_dataset=self._dataset_internal(txts,tf.data.TextLineDataset,self.parse_text)
+            if len(tfrecords)>0 and len(txts) > 0:
+                return tfrecords_dataset.concatenate(txts_dataset),num
+            elif len(tfrecords)>0:
+                return tfrecords_dataset, num
+            elif len(txts)>0:
+                return txts_dataset, num
