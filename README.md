@@ -14,7 +14,6 @@ Callback:
 Loss:
 - [x] MSE
 - [x] GIOU
-- [x] Focal Loss
 
 Train:
 - [x] Multi scale image size
@@ -23,10 +22,16 @@ Train:
 Tensorflow:
 - [x] Tensorflow2 Ready
 - [x] Use tf.data to load dataset
+- [x] Use tfds to load dataset
 - [x] Remove image shape input when use session
 - [ ] Convert model to tensorflow lite model
 - [x] Multi GPU training support
+
+Serving:
+- [x] Tensorflow Serving warm up request
 - [x] Tensorflow Serving JAVA Client
+- [x] Tensorflow Serving Python Client
+- [x] Tensorflow Serving Service Control Client
 - [ ] Tensorflow Serving Server Build and Plugins develop 
 
 # Requirement
