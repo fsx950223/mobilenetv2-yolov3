@@ -7,9 +7,10 @@ from enum import unique,Enum
 class MODE(Enum):
     STATUS=1
     CONFIG=2
-FLAGS=flags.FLAGS()
+
+FLAGS=flags.FLAGS
 flags.DEFINE_enum_class("mode",default=MODE.STATUS,enum_class=MODE,help='exec mode')
-flags.DEFINE_string("address",default="10.10.67.225:50052",help='grpc server address')
+flags.DEFINE_string("address",default="10.12.102.39:8500",help='grpc server address')
 
 def main(_):
     channel = grpc.insecure_channel(FLAGS.address)
@@ -17,10 +18,10 @@ def main(_):
     stub = model_service_pb2_grpc.ModelServiceStub(channel)
     if MODE.STATUS==FLAGS.mode:
         request = get_model_status_pb2.GetModelStatusRequest()
-        request.model_spec.name = 'pascal'
+        request.model_spec.name = 'detection'
         request.model_spec.signature_name = 'serving_default'
         result = stub.GetModelStatus(request)
-    elif MODE.STATUS==FLAGS.mode:
+    elif MODE.CONFIG==FLAGS.mode:
         request = model_management_pb2.ReloadConfigRequest()
         config = request.config.model_config_list.config.add()
         config.name = 'detection'
