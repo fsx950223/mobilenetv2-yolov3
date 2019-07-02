@@ -3,11 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <title>Yolo3</title>
+    <script>
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', function() {
+            navigator.serviceWorker.register(`${window.location.origin}/sw.js`).then(reg=>reg.update());
+          });
+        }
+    </script>
 </head>
 <body>
-    <img width=320 height=320 id="predict_image" src="./image1.jpeg"/>
-    <canvas is="yolov3-detection" model="http://127.0.0.1:8887/keras/model.json" anchors="http://127.0.0.1:8887/cci.anchors" classes="cci.names" width=224 height=224 src="./image1.jpeg"/>
-    <script src="https://cdn.bootcss.com/tensorflow/1.1.2/tf.js"></script>
-    <script type="module" src="./test.js"></script>
+    <!--<img width=320 height=320 id="predict_image" src="./image1.jpeg"/>-->
+    <canvas is="yolov3-detection" model="http://localhost:8887/keras/model.json" anchors="/cci_anchors.txt" classes="/cci_names.txt" width=224 height=224 src="./image1.jpeg"></canvas>
+    <input type="file" id="input_file"/>
+    <script src="./tf.min.js"></script>
+    <script type="module" src="./yolov3.js"></script>
+    <script>
+        document.querySelector('#input_file').addEventListener('change',(event)=>{
+            document.querySelector('canvas').draw(event.currentTarget.files[0])
+        })
+    </script>
 </body>
 </html>

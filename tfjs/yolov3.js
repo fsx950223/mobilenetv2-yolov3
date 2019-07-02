@@ -30,8 +30,7 @@ function workerHandler(){
         self.HTMLCanvasElement = OffscreenCanvas;
     }
     window = this
-    importScripts("https://cdn.bootcss.com/tensorflow/1.1.2/tf.js")
-    importScripts("http://127.0.0.1:8887/util.js")
+    importScripts(`${window.location.origin}/tf.min.js`,`${window.location.origin}/util.js`)
     class YoloV3{
         constructor(anchors,num_classes,input_shape){
             anchors=anchors.map(item=>Number(item))
@@ -157,8 +156,10 @@ export default class YoloV3Client{
         const code=workerHandler.toString()
         const source=code.substring(code.indexOf('{')+1,code.lastIndexOf('}'))
         const blob=new Blob([source],{ type: 'application/javascript' })
-        this.worker=new Worker(URL.createObjectURL(blob));
+        const objectURL=URL.createObjectURL(blob)
+        this.worker=new Worker(objectURL);
         this.client=new Client(this.worker)
+        URL.revokeObjectURL(objectURL)
     }
 
     async init(model_dir,anchors,num_classes,input_shape){
@@ -196,36 +197,39 @@ class YoloV3Components extends HTMLCanvasElement{
         this.ctx=this.getContext("2d");
     }
     async connectedCallback(){
-        this.anchors=await (await fetch(this.attributes.anchors.value)).text()
-        this.anchors=this.anchors.split(',')
-        this.classes=await (await fetch(this.attributes.classes.value)).text()
-        this.classes=this.classes.split(',')
+        const [anchors,classes]=await Promise.all([fetch(this.attributes.anchors.value).then(res=>res.text()),fetch(this.attributes.classes.value).then(res=>res.text())])
+        this.anchors=anchors.split(',')
+        this.classes=classes.split(',')
         const res=await this.client.init(this.attributes.model.value,this.anchors,this.classes.length,[this.attributes.width.value,this.attributes.height.value])
         this.draw()
     }
     disconnectedCallback(){}
     adoptedCallback(){}
-    async draw(){
-        const imageBlob=await (await fetch(this.attributes.src.value)).blob()
+    async draw(file){
+        const imageBlob=file?file:await (await fetch(this.attributes.src.value)).blob()
         const bitmap=await createImageBitmap(imageBlob)
         this.ctx.drawImage(bitmap,0,0,this.attributes.width.value,this.attributes.height.value)
         const image=tf.browser.fromPixels(this)
         const resizedImage=tf.image.resizeBilinear(image,[Number(this.attributes.width.value),Number(this.attributes.height.value)])
         let data=tf.expandDims(resizedImage,0)
         data=tf.div(data,255)
+        this.client.client.resolves={}
         const result=await this.client.predict(data.dataSync(),[image.shape[0],image.shape[1]])
         this.ctx.lineWidth = 3;
         this.ctx.fillStyle = "red";
         this.ctx.strokeStyle = "red";
-        const [top,left,bottom,right]=result['boxes']
-        this.ctx.fillText(this.classes[result['classes']],left,top)
-        this.ctx.strokeRect(left,top,right-left,bottom-top)
+        for(let i=0;i<result['classes'].length;i++){
+            const [left,top,right,bottom]=result['boxes'].slice(i*4,i*4+4)
+            this.ctx.fillText(this.classes[result['classes'][i]],left,top)
+            this.ctx.strokeRect(left,top,right-left,bottom-top)
+        }
+
     }
+    static get observedAttributes() {return [...document.querySelector('canvas').attributes].map(item=>item.name) }
     async attributeChangedCallback(name,oldValue,newValue){
-        if(name==='src'){
+        if(name==='src'&&oldValue!=null){
             this.draw()
         }
     }
 }
 customElements.define('yolov3-detection',YoloV3Components,{extends:'canvas'})
-
