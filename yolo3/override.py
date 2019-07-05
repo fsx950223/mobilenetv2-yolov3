@@ -52,17 +52,19 @@ import tensorflow as tf
 #       training = self._training
 #     return super(FreezableBatchNorm, self).call(inputs, training=training)
 
+
 def _make_divisible(v, divisor, min_value=None):
-  if min_value is None:
-    min_value = divisor
-  new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
-  # Make sure that round down does not go down by more than 10%.
-  if new_v < 0.9 * v:
-    new_v += divisor
-  return new_v
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
+
 
 def _fixed_padding(inputs, kernel_size, rate=1):
-  """Pads the input along the spatial dimensions independently of input size.
+    """Pads the input along the spatial dimensions independently of input size.
 
   Args:
     inputs: A tensor of size [batch, height_in, width_in, channels].
@@ -74,16 +76,23 @@ def _fixed_padding(inputs, kernel_size, rate=1):
     output: A tensor of size [batch, height_out, width_out, channels] with the
       input, either intact (if kernel_size == 1) or padded (if kernel_size > 1).
   """
-  kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
-  pad_total = kernel_size_effective - 1
-  pad_beg = pad_total // 2
-  pad_end = pad_total - pad_beg
-  padded_inputs = tf.pad(inputs, [[0, 0], [pad_beg, pad_end],
-                                  [pad_beg, pad_end], [0, 0]])
-  return padded_inputs
+    kernel_size_effective = kernel_size + (kernel_size - 1) * (rate - 1)
+    pad_total = kernel_size_effective - 1
+    pad_beg = pad_total // 2
+    pad_end = pad_total - pad_beg
+    padded_inputs = tf.pad(
+        inputs, [[0, 0], [pad_beg, pad_end], [pad_beg, pad_end], [0, 0]])
+    return padded_inputs
+
 
 class _LayersOverride:
-    def __init__(self,default_batchnorm_momentum=0.999,conv_hyperparams=None,use_explicit_padding=False,alpha=1.0,min_depth=None):
+
+    def __init__(self,
+                 default_batchnorm_momentum=0.999,
+                 conv_hyperparams=None,
+                 use_explicit_padding=False,
+                 alpha=1.0,
+                 min_depth=None):
         """Alternative tf.keras.layers interface, for use by the Keras MobileNetV2.
 
         It is used by the Keras applications kwargs injection API to
@@ -114,86 +123,86 @@ class _LayersOverride:
             modifies the number of filters in each convolutional layer.
           min_depth: Minimum number of filters in the convolutional layers.
         """
-        self._default_batchnorm_momentum=default_batchnorm_momentum
-        self._conv_hyperparams=conv_hyperparams
-        self._use_explicit_padding=use_explicit_padding
-        self._alpha=alpha
-        self._min_depth=min_depth
-        self._regularizer=tf.keras.regularizers.l2(0.00004*0.5)
-        self._initializer=tf.keras.initializers.TruncatedNormal(stddev=0.09)
+        self._default_batchnorm_momentum = default_batchnorm_momentum
+        self._conv_hyperparams = conv_hyperparams
+        self._use_explicit_padding = use_explicit_padding
+        self._alpha = alpha
+        self._min_depth = min_depth
+        self._regularizer = tf.keras.regularizers.l2(0.00004)
+        self._initializer = tf.keras.initializers.RandomNormal(stddev=0.03)
 
-    def _FixedPaddingLayer(self,kernel_size):
-        return tf.keras.layers.Lambda(lambda x: _fixed_padding(x, kernel_size))
+    # def _FixedPaddingLayer(self,kernel_size):
+    #     return tf.keras.layers.Lambda(lambda x: _fixed_padding(x, kernel_size))
 
-    def Conv2D(self,filters,**kwargs):
-        """Builds a Conv2D layer according to the current Object Detection config.
+    # def Conv2D(self,filters,**kwargs):
+    #     """Builds a Conv2D layer according to the current Object Detection config.
+    #
+    #     Overrides the Keras MobileNetV2 application's convolutions with ones that
+    #     follow the spec specified by the Object Detection hyperparameters.
+    #
+    #     Args:
+    #       filters: The number of filters to use for the convolution.
+    #       **kwargs: Keyword args specified by the Keras application for
+    #         constructing the convolution.
+    #
+    #     Returns:
+    #       A one-arg callable that will either directly apply a Keras Conv2D layer to
+    #       the input argument, or that will first pad the input then apply a Conv2D
+    #       layer.
+    #     """
+    #     if kwargs.get('name')=='Conv_1' and self._alpha<1.0:
+    #         filters=_make_divisible(1280*self._alpha,8)
+    #
+    #     if self._min_depth and (filters<self._min_depth) and not kwargs.get('name').endswith('expand'):
+    #         filters=self._min_depth
+    #
+    #     # if self._conv_hyperparams:
+    #     #     kwargs=self._conv_hyperparams.params(**kwargs)
+    #     # else:
+    #     #     kwargs['kernel_regularizer']=self._regularizer
+    #     #     kwargs['kernel_initializer']=self._initializer
+    #
+    #     kwargs['padding']='same'
+    #     kernel_size=kwargs.get('kernel_size')
+    #     if self._use_explicit_padding and kernel_size>1:
+    #         kwargs['padding']='valid'
+    #         def padded_conv(features):
+    #             padded_features=self._FixedPaddingLayer(kernel_size)(features)
+    #             return tf.keras.layers.Conv2D(filters,**kwargs)(padded_features)
+    #         return padded_conv
+    #     else:
+    #         return tf.keras.layers.Conv2D(filters,**kwargs)
 
-        Overrides the Keras MobileNetV2 application's convolutions with ones that
-        follow the spec specified by the Object Detection hyperparameters.
-
-        Args:
-          filters: The number of filters to use for the convolution.
-          **kwargs: Keyword args specified by the Keras application for
-            constructing the convolution.
-
-        Returns:
-          A one-arg callable that will either directly apply a Keras Conv2D layer to
-          the input argument, or that will first pad the input then apply a Conv2D
-          layer.
-        """
-        if kwargs.get('name')=='Conv_1' and self._alpha<1.0:
-            filters=_make_divisible(1280*self._alpha,8)
-
-        if self._min_depth and (filters<self._min_depth) and not kwargs.get('name').endswith('expand'):
-            filters=self._min_depth
-
-        if self._conv_hyperparams:
-            kwargs=self._conv_hyperparams.params(**kwargs)
-        else:
-            kwargs['kernel_regularizer']=self._regularizer
-            kwargs['kernel_initializer']=self._initializer
-
-        kwargs['padding']='same'
-        kernel_size=kwargs.get('kernel_size')
-        if self._use_explicit_padding and kernel_size>1:
-            kwargs['padding']='valid'
-            def padded_conv(features):
-                padded_features=self._FixedPaddingLayer(kernel_size)(features)
-                return tf.keras.layers.Conv2D(filters,**kwargs)(padded_features)
-            return padded_conv
-        else:
-            return tf.keras.layers.Conv2D(filters,**kwargs)
-
-    def DepthwiseConv2D(self,**kwargs):
-        """Builds a DepthwiseConv2D according to the Object Detection config.
-
-        Overrides the Keras MobileNetV2 application's convolutions with ones that
-        follow the spec specified by the Object Detection hyperparameters.
-
-        Args:
-          **kwargs: Keyword args specified by the Keras application for
-            constructing the convolution.
-
-        Returns:
-          A one-arg callable that will either directly apply a Keras DepthwiseConv2D
-          layer to the input argument, or that will first pad the input then apply
-          the depthwise convolution.
-        """
-        if self._conv_hyperparams:
-            kwargs=self._conv_hyperparams.params(**kwargs)
-        else:
-            kwargs['depthwise_initializer']=self._initializer
-
-        kwargs['padding']='same'
-        kernel_size=kwargs.get('kernel_size')
-        if self._use_explicit_padding and kernel_size>1:
-            kwargs['padding']='valid'
-            def padded_depthwise_conv(features):
-                padded_features=self._FixedPaddingLayer(kernel_size)(features)
-                return tf.keras.layers.DepthwiseConv2D(**kwargs)(padded_features)
-            return padded_depthwise_conv
-        else:
-            return tf.keras.layers.DepthwiseConv2D(**kwargs)
+    # def DepthwiseConv2D(self,**kwargs):
+    #     """Builds a DepthwiseConv2D according to the Object Detection config.
+    #
+    #     Overrides the Keras MobileNetV2 application's convolutions with ones that
+    #     follow the spec specified by the Object Detection hyperparameters.
+    #
+    #     Args:
+    #       **kwargs: Keyword args specified by the Keras application for
+    #         constructing the convolution.
+    #
+    #     Returns:
+    #       A one-arg callable that will either directly apply a Keras DepthwiseConv2D
+    #       layer to the input argument, or that will first pad the input then apply
+    #       the depthwise convolution.
+    #     """
+    #     if self._conv_hyperparams:
+    #         kwargs=self._conv_hyperparams.params(**kwargs)
+    #     else:
+    #         kwargs['depthwise_initializer']=self._initializer
+    #
+    #     kwargs['padding']='same'
+    #     kernel_size=kwargs.get('kernel_size')
+    #     if self._use_explicit_padding and kernel_size>1:
+    #         kwargs['padding']='valid'
+    #         def padded_depthwise_conv(features):
+    #             padded_features=self._FixedPaddingLayer(kernel_size)(features)
+    #             return tf.keras.layers.DepthwiseConv2D(**kwargs)(padded_features)
+    #         return padded_depthwise_conv
+    #     else:
+    #         return tf.keras.layers.DepthwiseConv2D(**kwargs)
 
     def BatchNormalization(self, **kwargs):
         """Builds a normalization layer.
@@ -210,75 +219,75 @@ class _LayersOverride:
           A normalization layer specified by the Object Detection hyperparameter
           configurations.
         """
-        name=kwargs.get('name')
+        name = kwargs.get('name')
         if self._conv_hyperparams:
             return self._conv_hyperparams.build_batch_norm(name=name)
         else:
             return tf.keras.layers.BatchNormalization(
-              momentum=self._default_batchnorm_momentum,
-              name=name)
+                momentum=self._default_batchnorm_momentum, name=name)
 
-    def Input(self,shape):
-        """Builds an Input layer.
+    # def Input(self,shape):
+    #     """Builds an Input layer.
+    #
+    #     Overrides the Keras application Input layer with one that uses a
+    #     tf.placeholder_with_default instead of a tf.placeholder. This is necessary
+    #     to ensure the application works when run on a TPU.
+    #
+    #     Args:
+    #       shape: The shape for the input layer to use. (Does not include a dimension
+    #         for the batch size).
+    #     Returns:
+    #       An input layer for the specified shape that internally uses a
+    #       placeholder_with_default.
+    #     """
+    #     default_size = 224
+    #     default_batch_size = 1
+    #     shape = list(shape)
+    #     default_shape = [default_size if dim is None else dim for dim in shape]
+    #
+    #     input_tensor = tf.constant(0.0, shape=[default_batch_size] + default_shape)
+    #
+    #     placeholder_with_default = tf.placeholder_with_default(
+    #         input=input_tensor, shape=[None] + shape)
+    #     return tf.keras.layers.Input(tensor=placeholder_with_default)
 
-        Overrides the Keras application Input layer with one that uses a
-        tf.placeholder_with_default instead of a tf.placeholder. This is necessary
-        to ensure the application works when run on a TPU.
+    # def ReLU(self, *args, **kwargs):
+    #     """Builds an activation layer.
+    #
+    #     Overrides the Keras application ReLU with the activation specified by the
+    #     Object Detection configuration.
+    #
+    #     Args:
+    #       *args: Ignored, required to match the `tf.keras.ReLU` interface
+    #       **kwargs: Only the name is used,
+    #         required to match `tf.keras.ReLU` interface
+    #
+    #     Returns:
+    #       An activation layer specified by the Object Detection hyperparameter
+    #       configurations.
+    #     """
+    #     name = kwargs.get('name')
+    #     if self._conv_hyperparams:
+    #         return self._conv_hyperparams.build_activation_layer(name=name)
+    #     else:
+    #         return tf.keras.layers.Lambda(tf.nn.relu6, name=name)
 
-        Args:
-          shape: The shape for the input layer to use. (Does not include a dimension
-            for the batch size).
-        Returns:
-          An input layer for the specified shape that internally uses a
-          placeholder_with_default.
-        """
-        default_size = 224
-        default_batch_size = 1
-        shape = list(shape)
-        default_shape = [default_size if dim is None else dim for dim in shape]
-
-        input_tensor = tf.constant(0.0, shape=[default_batch_size] + default_shape)
-
-        placeholder_with_default = tf.placeholder_with_default(
-            input=input_tensor, shape=[None] + shape)
-        return tf.keras.layers.Input(tensor=placeholder_with_default)
-
-    def ReLU(self, *args, **kwargs):
-        """Builds an activation layer.
-
-        Overrides the Keras application ReLU with the activation specified by the
-        Object Detection configuration.
-
-        Args:
-          *args: Ignored, required to match the `tf.keras.ReLU` interface
-          **kwargs: Only the name is used,
-            required to match `tf.keras.ReLU` interface
-
-        Returns:
-          An activation layer specified by the Object Detection hyperparameter
-          configurations.
-        """
-        name = kwargs.get('name')
-        if self._conv_hyperparams:
-            return self._conv_hyperparams.build_activation_layer(name=name)
-        else:
-            return tf.keras.layers.Lambda(tf.nn.relu6, name=name)
-
-    def ZeroPadding2D(self, **kwargs):
-        """Replaces explicit padding in the Keras application with a no-op.
-
-        Args:
-          **kwargs: Ignored, required to match the Keras applications usage.
-
-        Returns:
-          A no-op identity lambda.
-        """
-        return lambda x: x
+    # def ZeroPadding2D(self, **kwargs):
+    #     """Replaces explicit padding in the Keras application with a no-op.
+    #
+    #     Args:
+    #       **kwargs: Ignored, required to match the Keras applications usage.
+    #
+    #     Returns:
+    #       A no-op identity lambda.
+    #     """
+    #     return lambda x: x
 
     def __getattr__(self, item):
         return getattr(tf.keras.layers, item)
 
-def mobilenet_v2(default_batchnorm_momentum=0.9997,
+
+def mobilenet_v2(default_batchnorm_momentum=0.999,
                  conv_hyperparams=None,
                  use_explicit_padding=False,
                  alpha=1.0,

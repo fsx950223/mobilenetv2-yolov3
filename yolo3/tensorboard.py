@@ -3,9 +3,11 @@ from matplotlib import pyplot as plt
 from io import BytesIO
 import numpy as np
 
-def log_scalar(callback:tf.keras.callbacks.TensorBoard,tag,value,step):
-    summary=tf.Summary(value=[tf.Summary.Value(tag=tag,simple_value=value)])
-    callback.writer.add_summary(summary,step)
+
+def log_scalar(callback: tf.keras.callbacks.TensorBoard, tag, value, step):
+    summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
+    callback.writer.add_summary(summary, step)
+
 
 def log_images(callback, tag, images, step):
     """Logs a list of images."""
@@ -21,8 +23,8 @@ def log_images(callback, tag, images, step):
                                    height=img.shape[0],
                                    width=img.shape[1])
         # Create a Summary value
-        im_summaries.append(tf.Summary.Value(tag='%s/%d' % (tag, nr),
-                                             image=img_sum))
+        im_summaries.append(
+            tf.Summary.Value(tag='%s/%d' % (tag, nr), image=img_sum))
 
     # Create and write Summary
     summary = tf.Summary(value=im_summaries)
@@ -43,7 +45,7 @@ def log_histogram(callback, tag, values, step, bins=1000):
     hist.max = float(np.max(values))
     hist.num = int(np.prod(values.shape))
     hist.sum = float(np.sum(values))
-    hist.sum_squares = float(np.sum(values ** 2))
+    hist.sum_squares = float(np.sum(values**2))
 
     # Requires equal number as bins, where the first goes from -DBL_MAX to bin_edges[1]
     # See https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/summary.proto#L30

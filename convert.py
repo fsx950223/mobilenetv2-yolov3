@@ -12,22 +12,21 @@ from collections import defaultdict
 
 import numpy as np
 import tensorflow as tf
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-tf.enable_eager_execution()
+
+#os.environ["CUDA_VISIBLE_DEVICES"] = ""
 parser = argparse.ArgumentParser(description='Darknet To Keras Converter.')
 parser.add_argument('config_path', help='Path to Darknet cfg file.')
 parser.add_argument('weights_path', help='Path to Darknet weights file.')
 parser.add_argument('output_path', help='Path to output Keras model file.')
-parser.add_argument(
-    '-p',
-    '--plot_model',
-    help='Plot generated Keras model and save as image.',
-    action='store_true')
-parser.add_argument(
-    '-w',
-    '--weights_only',
-    help='Save as Keras weights file instead of model file.',
-    action='store_true')
+parser.add_argument('-p',
+                    '--plot_model',
+                    help='Plot generated Keras model and save as image.',
+                    action='store_true')
+parser.add_argument('-w',
+                    '--weights_only',
+                    help='Save as Keras weights file instead of model file.',
+                    action='store_true')
+
 
 def unique_config_sections(config_file):
     """Convert all config sections to have unique names.
@@ -47,6 +46,7 @@ def unique_config_sections(config_file):
     output_stream.seek(0)
     return output_stream
 
+
 # %%
 def _main(args):
     config_path = os.path.expanduser(args.config_path)
@@ -64,12 +64,17 @@ def _main(args):
     # Load weights and config.
     print('Loading weights.')
     weights_file = open(weights_path, 'rb')
-    major, minor, revision = np.ndarray(
-        shape=(3, ), dtype='int32', buffer=weights_file.read(12))
-    if (major*10+minor)>=2 and major<1000 and minor<1000:
-        seen = np.ndarray(shape=(1,), dtype='int64', buffer=weights_file.read(8))
+    major, minor, revision = np.ndarray(shape=(3,),
+                                        dtype='int32',
+                                        buffer=weights_file.read(12))
+    if (major * 10 + minor) >= 2 and major < 1000 and minor < 1000:
+        seen = np.ndarray(shape=(1,),
+                          dtype='int64',
+                          buffer=weights_file.read(8))
     else:
-        seen = np.ndarray(shape=(1,), dtype='int32', buffer=weights_file.read(4))
+        seen = np.ndarray(shape=(1,),
+                          dtype='int32',
+                          buffer=weights_file.read(4))
     print('Weights Header: ', major, minor, revision, seen)
 
     print('Parsing Darknet config.')
@@ -83,7 +88,7 @@ def _main(args):
     all_layers = []
 
     weight_decay = float(cfg_parser['net_0']['decay']
-                         ) if 'net_0' in cfg_parser.sections() else 5e-4
+                        ) if 'net_0' in cfg_parser.sections() else 5e-4
     count = 0
     out_index = []
     for section in cfg_parser.sections():
@@ -107,20 +112,18 @@ def _main(args):
             darknet_w_shape = (filters, weights_shape[2], size, size)
             weights_size = np.product(weights_shape)
 
-            print('conv2d', 'bn'
-                  if batch_normalize else '  ', activation, weights_shape)
+            print('conv2d', 'bn' if batch_normalize else '  ', activation,
+                  weights_shape)
 
-            conv_bias = np.ndarray(
-                shape=(filters, ),
-                dtype='float32',
-                buffer=weights_file.read(filters * 4))
+            conv_bias = np.ndarray(shape=(filters,),
+                                   dtype='float32',
+                                   buffer=weights_file.read(filters * 4))
             count += filters
 
             if batch_normalize:
-                bn_weights = np.ndarray(
-                    shape=(3, filters),
-                    dtype='float32',
-                    buffer=weights_file.read(filters * 12))
+                bn_weights = np.ndarray(shape=(3, filters),
+                                        dtype='float32',
+                                        buffer=weights_file.read(filters * 12))
                 count += 3 * filters
 
                 bn_weight_list = [
@@ -130,10 +133,10 @@ def _main(args):
                     bn_weights[2]  # running var
                 ]
 
-            conv_weights = np.ndarray(
-                shape=darknet_w_shape,
-                dtype='float32',
-                buffer=weights_file.read(weights_size * 4))
+            conv_weights = np.ndarray(shape=darknet_w_shape,
+                                      dtype='float32',
+                                      buffer=weights_file.read(weights_size *
+                                                               4))
             count += weights_size
 
             # DarkNet conv_weights are serialized Caffe-style:
@@ -141,9 +144,8 @@ def _main(args):
             # We would like to set these to Tensorflow order:
             # (height, width, in_dim, out_dim)
             conv_weights = np.transpose(conv_weights, [2, 3, 1, 0])
-            conv_weights = [conv_weights] if batch_normalize else [
-                conv_weights, conv_bias
-            ]
+            conv_weights = [conv_weights
+                           ] if batch_normalize else [conv_weights, conv_bias]
 
             # Handle activation.
             act_fn = None
@@ -155,9 +157,10 @@ def _main(args):
                         activation, section))
 
             # Create Conv2D layer
-            if stride>1:
+            if stride > 1:
                 # Darknet uses left and top padding instead of 'same' mode
-                prev_layer =tf.keras.layers.ZeroPadding2D(((1,0),(1,0)))(prev_layer)
+                prev_layer = tf.keras.layers.ZeroPadding2D(
+                    ((1, 0), (1, 0)))(prev_layer)
             conv_layer = (tf.keras.layers.Conv2D(
                 filters, (size, size),
                 strides=(stride, stride),
@@ -196,17 +199,17 @@ def _main(args):
             size = int(cfg_parser[section]['size'])
             stride = int(cfg_parser[section]['stride'])
             all_layers.append(
-                tf.keras.layers.MaxPooling2D(
-                    pool_size=(size, size),
-                    strides=(stride, stride),
-                    padding='same')(prev_layer))
+                tf.keras.layers.MaxPooling2D(pool_size=(size, size),
+                                             strides=(stride, stride),
+                                             padding='same')(prev_layer))
             prev_layer = all_layers[-1]
 
         elif section.startswith('shortcut'):
             index = int(cfg_parser[section]['from'])
             activation = cfg_parser[section]['activation']
             assert activation == 'linear', 'Only linear activation supported.'
-            all_layers.append(tf.keras.layers.Add()([all_layers[index], prev_layer]))
+            all_layers.append(
+                tf.keras.layers.Add()([all_layers[index], prev_layer]))
             prev_layer = all_layers[-1]
 
         elif section.startswith('upsample'):
@@ -216,7 +219,7 @@ def _main(args):
             prev_layer = all_layers[-1]
 
         elif section.startswith('yolo'):
-            out_index.append(len(all_layers)-1)
+            out_index.append(len(all_layers) - 1)
             all_layers.append(None)
             prev_layer = all_layers[-1]
 
@@ -228,8 +231,9 @@ def _main(args):
                 'Unsupported section header type: {}'.format(section))
 
     # Create and save model.
-    if len(out_index)==0: out_index.append(len(all_layers)-1)
-    model = tf.keras.models.Model(inputs=input_layer, outputs=[all_layers[i] for i in out_index])
+    if len(out_index) == 0: out_index.append(len(all_layers) - 1)
+    model = tf.keras.models.Model(inputs=input_layer,
+                                  outputs=[all_layers[i] for i in out_index])
     print(model.summary())
     if args.weights_only:
         model.save_weights('{}'.format(output_path))
@@ -241,13 +245,15 @@ def _main(args):
     # Check to see if all weights have been read.
     remaining_weights = len(weights_file.read()) / 4
     weights_file.close()
-    print('Read {} of {} from Darknet weights.'.format(count, count +
-                                                       remaining_weights))
+    print('Read {} of {} from Darknet weights.'.format(
+        count, count + remaining_weights))
     if remaining_weights > 0:
         print('Warning: {} unused weights'.format(remaining_weights))
 
     if args.plot_model:
-        tf.keras.utils.plot_model(model, to_file='{}.png'.format(output_root), show_shapes=True)
+        tf.keras.utils.plot_model(model,
+                                  to_file='{}.png'.format(output_root),
+                                  show_shapes=True)
         print('Saved model plot to {}.png'.format(output_root))
 
 

@@ -1,30 +1,22 @@
 import tensorflow as tf
 import numpy as np
-from yolo3.model import yolo_eval,box_iou
-from yolo3.utils import letterbox_image
-from functools import reduce
+from yolo3.model import yolo_eval
+from yolo3.utils import letterbox_image, bind
 from timeit import default_timer as timer
+from yolo3.data import Dataset
+from yolo3.enum import DATASET_MODE
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
+
 class MAPCallback(tf.keras.callbacks.Callback):
-    def tfrecord_dataset(self,files,batch_size=1):
-        with tf.device('/cpu:0'):
-            dataset = tf.data.Dataset.from_tensor_slices(files)
-            """data generator for fit_generator"""
-
-            dataset = dataset.interleave(
-                lambda file: tf.data.TFRecordDataset(file),
-                cycle_length=len(files),num_parallel_calls=AUTOTUNE).map(self.parse_fn,num_parallel_calls=AUTOTUNE).batch(batch_size)
-
-            return dataset
     """
      Calculate the AP given the recall and precision array
         1st) We compute a version of the measured precision/recall curve with
              precision monotonically decreasing
         2nd) We compute the AP as the area under this curve by numerical integration.
     """
-    def _voc_ap(self,rec, prec):
+    def _voc_ap(self, rec, prec):
         # correct AP calculation
         # first append sentinel values at the end
         mrec = np.concatenate(([0.], rec, [1.]))
@@ -42,43 +34,82 @@ class MAPCallback(tf.keras.callbacks.Callback):
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
         return ap
 
+    def parse_tfrecord(self,example_proto):
+        feature_description = {
+            'image/encoded': tf.io.FixedLenFeature([], tf.string),
+            'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/label': tf.io.VarLenFeature(tf.int64)
+        }
+        features = tf.io.parse_single_example(example_proto, feature_description)
+        image = tf.image.decode_image(features['image/encoded'], channels=3, dtype=tf.float32)
+        image.set_shape([None, None, 3])
+        xmin = tf.expand_dims(features['image/object/bbox/xmin'].values, 0)
+        xmax = tf.expand_dims(features['image/object/bbox/xmax'].values, 0)
+        ymin = tf.expand_dims(features['image/object/bbox/ymin'].values, 0)
+        ymax = tf.expand_dims(features['image/object/bbox/ymax'].values, 0)
+        label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
+        bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+        return image, bbox
+
+    def parse_text(self,line):
+        values = tf.strings.split([line],' ').values
+        image = tf.image.decode_image(tf.io.read_file(values[0]),
+                                      channels=3,
+                                      dtype=tf.float32)
+        image.set_shape([None, None, 3])
+        reshaped_data = tf.reshape(values[1:], [-1, 5])
+        xmins = tf.strings.to_number(reshaped_data[:, 0], tf.float32)
+        xmaxs = tf.strings.to_number(reshaped_data[:, 2], tf.float32)
+        ymins = tf.strings.to_number(reshaped_data[:, 1], tf.float32)
+        ymaxs = tf.strings.to_number(reshaped_data[:, 3], tf.float32)
+        labels = tf.strings.to_number(reshaped_data[:, 4], tf.int64)
+        bbox = tf.concat([xmins, ymins, xmaxs, ymaxs, tf.cast(labels, tf.float32)], 0)
+        return image, bbox
+
     def calculate_aps(self):
-        files = tf.io.gfile.glob(self.glob_path)
-        test_num = reduce(lambda x, y: x + y,
-                          map(lambda file: int(file.split('/')[-1].split('.')[0].split('_')[3]), files))
-        test_dataset = self.tfrecord_dataset(files,self.batch_size)
+        test_dataset_builder = Dataset(self.glob_path,
+                                         self.batch_size,
+                                         input_shapes=self.input_shape,
+                                         mode=DATASET_MODE.TEST)
+        bind(test_dataset_builder, self.parse_tfrecord)
+        bind(test_dataset_builder, self.parse_text)
+        test_dataset,test_num = test_dataset_builder.build()
+        options = tf.data.Options()
+        options.experimental_distribute.auto_shard = False
+        test_dataset = test_dataset.with_options(options)
         true_res = {}
         pred_res = []
         idx = 0
         APs = {}
         start = timer()
-        for image, bbox in test_dataset:
+        for image, bbox in test_dataset.take(10):
             if self.input_shape != (None, None):
-                assert self.input_shape[0] % 32 == 0, 'Multiples of 32 required'
-                assert self.input_shape[1] % 32 == 0, 'Multiples of 32 required'
-                boxed_image, image_shape = letterbox_image(image, tuple(
-                    reversed(self.input_shape)))
+                boxed_image, resized_image_shape = letterbox_image(
+                    image, tuple(reversed(self.input_shape)))
             else:
-                height, width, _ = image.shape
+                _, height, width, _ = tf.shape(image)
                 new_image_size = (width - (width % 32), height - (height % 32))
-                boxed_image, image_shape = letterbox_image(image, new_image_size)
-            image_data = np.expand_dims(boxed_image, 0)
-            output = self.model.predict(image_data)
-            out_boxes, out_scores, out_classes = yolo_eval(output, self.anchors, self.num_classes, image.shape[0:2],
-                                                           score_threshold=self.score, iou_threshold=self.nms)
+                boxed_image, resized_image_shape = letterbox_image(
+                    image, new_image_size)
+            output = self.model.predict(boxed_image.numpy())
+            out_boxes, out_scores, out_classes = yolo_eval(
+                output,
+                self.anchors,
+                self.num_classes,
+                image.shape[1:3],
+                score_threshold=self.score,
+                iou_threshold=self.nms)
             if len(out_classes) > 0:
                 for i in range(len(out_classes)):
-                    w = int(image.shape[1])
-                    h = int(image.shape[0])
                     top, left, bottom, right = out_boxes[i]
-                    top = max(0, np.floor(top + 0.5).astype('int32'))
-                    left = max(0, np.floor(left + 0.5).astype('int32'))
-                    bottom = min(h, np.floor(bottom + 0.5).astype('int32'))
-                    right = min(w, np.floor(right + 0.5).astype('int32'))
-                    pred_res.append([idx, out_classes[i].numpy(), out_scores[i].numpy(), left, top, right, bottom])
-            true_res[idx] = []
-            for item in list(np.transpose(bbox)):
-                true_res[idx].append(item)
+                    pred_res.append([
+                        idx, out_classes[i].numpy(), out_scores[i].numpy(),
+                        left, top, right, bottom
+                    ])
+            true_res[idx] = tf.transpose(bbox[0]).numpy()
             idx += 1
         end = timer()
         print((end - start) / test_num)
@@ -92,9 +123,11 @@ class MAPCallback(tf.keras.callbacks.Callback):
                 objs = [obj for obj in true_res[index] if obj[4] == cls]
                 npos += len(objs)
                 BBGT = np.array([x[:4] for x in objs])
-                true_res_cls[index] = {'bbox': BBGT,
-                                       'difficult': [False] * len(objs),
-                                       'det': [False] * len(objs)}
+                true_res_cls[index] = {
+                    'bbox': BBGT,
+                    'difficult': [False] * len(objs),
+                    'det': [False] * len(objs)
+                }
             ids = [x[0] for x in pred_res_cls]
             scores = np.array([x[2] for x in pred_res_cls])
             bboxs = np.array([x[3:] for x in pred_res_cls])
@@ -145,28 +178,37 @@ class MAPCallback(tf.keras.callbacks.Callback):
             APs[cls] = ap
         return APs
 
-    def __init__(self,glob_path,input_shape,anchors,class_names,parse_fn,score=.5,iou=.5,nms=.5,batch_size=1):
-        self.input_shape=input_shape
+    def __init__(self,
+                 glob_path,
+                 input_shapes,
+                 anchors,
+                 class_names,
+                 score=0.,
+                 iou=.5,
+                 nms=.5,
+                 batch_size=1):
+        if isinstance(input_shapes, list):
+            self.input_shape = input_shapes[0]
+        else:
+            self.input_shape = input_shapes
         self.anchors = anchors
-        self.class_names=class_names
+        self.class_names = class_names
         self.num_classes = len(class_names)
-        self.glob_path=glob_path
-        self.score=score
-        self.iou=iou
-        self.nms=nms
-        self.parse_fn=parse_fn
-        self.batch_size=batch_size
+        self.glob_path = glob_path
+        self.score = score
+        self.iou = iou
+        self.nms = nms
+        self.batch_size = batch_size
 
     def on_train_end(self, logs={}):
         logs = logs or {}
         origin_learning_phase = tf.keras.backend.learning_phase()
         tf.keras.backend.set_learning_phase(0)
-        APs=self.calculate_aps()
+        APs = self.calculate_aps()
         tf.keras.backend.set_learning_phase(origin_learning_phase)
         for cls in range(self.num_classes):
             if cls in APs:
-                print(self.class_names[cls]+' ap: ',APs[cls])
+                print(self.class_names[cls] + ' ap: ', APs[cls])
         mAP = np.mean([APs[cls] for cls in APs])
-        print('mAP: ',mAP)
-        logs['mAP']=mAP
-
+        print('mAP: ', mAP)
+        logs['mAP'] = mAP

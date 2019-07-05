@@ -1,12 +1,44 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import keras
-keras.backend.clear_session()
+from yolo3.utils import bind
+import tensorflow as tf
+from yolo3.data import Dataset
+from yolo3.enum import DATASET_MODE
+
+if hasattr(tf, 'enable_eager_execution'):
+    tf.enable_eager_execution()
+
+AUTOTUNE = tf.data.experimental.AUTOTUNE
+
+
 class YOLO_Kmeans:
 
-    def __init__(self, cluster_number, filename):
+    def parse_tfrecord(self, example_proto):
+        feature_description = {
+            'image/object/bbox/xmin': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/xmax': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/ymin': tf.io.VarLenFeature(tf.float32),
+            'image/object/bbox/ymax': tf.io.VarLenFeature(tf.float32)
+        }
+        features = tf.io.parse_single_example(example_proto,
+                                              feature_description)
+        xmins = features['image/object/bbox/xmin'].values
+        xmaxs = features['image/object/bbox/xmax'].values
+        ymins = features['image/object/bbox/ymin'].values
+        ymaxs = features['image/object/bbox/ymax'].values
+        return xmins, xmaxs, ymins, ymaxs
+    def parse_text(self, line):
+        values = tf.strings.split([line],' ').values
+        reshaped_data = tf.reshape(values[1:], [-1, 5])
+        xmins = tf.strings.to_number(reshaped_data[:, 0], tf.float32)
+        xmaxs = tf.strings.to_number(reshaped_data[:, 2], tf.float32)
+        ymins = tf.strings.to_number(reshaped_data[:, 1], tf.float32)
+        ymaxs = tf.strings.to_number(reshaped_data[:, 3], tf.float32)
+        return xmins, xmaxs, ymins, ymaxs
+
+    def __init__(self, cluster_number, glob_path):
         self.cluster_number = cluster_number
-        self.filename = filename
+        self.glob_path = glob_path
 
     def iou(self, boxes, clusters):  # 1 box -> k clusters
         n = boxes.shape[0]
@@ -41,8 +73,8 @@ class YOLO_Kmeans:
         distances = np.empty((box_number, k))
         last_nearest = np.zeros((box_number,))
         np.random.seed()
-        clusters = boxes[np.random.choice(
-            box_number, k, replace=False)]  # init k clusters
+        clusters = boxes[np.random.choice(box_number, k,
+                                          replace=False)]  # init k clusters
         while True:
 
             distances = 1 - self.iou(boxes, clusters)
@@ -52,7 +84,8 @@ class YOLO_Kmeans:
                 break  # clusters won't change
             for cluster in range(k):
                 clusters[cluster] = dist(  # update clusters
-                    boxes[current_nearest == cluster], axis=0)
+                    boxes[current_nearest == cluster],
+                    axis=0)
 
             last_nearest = current_nearest
 
@@ -70,36 +103,34 @@ class YOLO_Kmeans:
         f.close()
 
     def txt2boxes(self):
-        f = open(self.filename, 'r')
-        dataSet = []
-        for line in f:
-            infos = line.split(" ")
-            length = len(infos)
-            for i in range(1, length):
-                width = int(infos[i].split(",")[2]) - \
-                    int(infos[i].split(",")[0])
-                height = int(infos[i].split(",")[3]) - \
-                    int(infos[i].split(",")[1])
-                dataSet.append([width, height])
-        result = np.array(dataSet)
-        f.close()
-        return result
+        train_dataset_builder = Dataset(self.glob_path,
+                                        1,
+                                        mode=DATASET_MODE.TEST)
+        bind(train_dataset_builder, self.parse_tfrecord)
+        bind(train_dataset_builder, self.parse_text)
+        train_dataset, train_num = train_dataset_builder.build()
+        result = []
+        for xmins, xmaxs, ymins, ymaxs in train_dataset:
+            width = xmaxs - xmins
+            height = ymaxs - ymins
+            wh = np.transpose(np.concatenate([width, height], 0))
+            result.append(wh)
+        return np.concatenate(result, 0).astype(np.int32)
 
     def txt2clusters(self):
         all_boxes = self.txt2boxes()
-        plt.scatter(all_boxes[:1000,0],all_boxes[:1000,1],c='r')
+        plt.scatter(all_boxes[:1000, 0], all_boxes[:1000, 1], c='r')
         result = self.kmeans(all_boxes, k=self.cluster_number)
         result = result[np.lexsort(result.T[0, None])]
         plt.scatter(result[:, 0], result[:, 1], c='b')
         plt.show()
         self.result2txt(result)
         print("K anchors:\n {}".format(result))
-        print("Accuracy: {:.2f}%".format(
-            self.avg_iou(all_boxes, result) * 100))
+        print("Accuracy: {:.2f}%".format(self.avg_iou(all_boxes, result) * 100))
 
 
 if __name__ == "__main__":
     cluster_number = 9
-    filename = "../pascal/VOCdevkit/dev.txt"
-    kmeans = YOLO_Kmeans(cluster_number, filename)
+    glob = "../pascal/VOCdevkit/train/*2007*.tfrecords"
+    kmeans = YOLO_Kmeans(cluster_number, glob)
     kmeans.txt2clusters()
