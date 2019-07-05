@@ -9,6 +9,7 @@ class MODE(Enum):
     SERVING = 4
     MAP = 5
     PRUNE = 6
+    TFJS = 7
 
 @unique
 class OPT(Enum):
