@@ -10,7 +10,7 @@ class MODE(Enum):
 
 FLAGS=flags.FLAGS
 flags.DEFINE_enum_class("mode",default=MODE.STATUS,enum_class=MODE,help='exec mode')
-flags.DEFINE_string("address",default="10.12.102.39:8500",help='grpc server address')
+flags.DEFINE_string("address",default="10.12.102.32:8500",help='grpc server address')
 
 def main(_):
     channel = grpc.insecure_channel(FLAGS.address)
@@ -18,7 +18,7 @@ def main(_):
     stub = model_service_pb2_grpc.ModelServiceStub(channel)
     if MODE.STATUS==FLAGS.mode:
         request = get_model_status_pb2.GetModelStatusRequest()
-        request.model_spec.name = 'detection'
+        request.model_spec.name = 'pascal'
         request.model_spec.signature_name = 'serving_default'
         result = stub.GetModelStatus(request)
     elif MODE.CONFIG==FLAGS.mode:
