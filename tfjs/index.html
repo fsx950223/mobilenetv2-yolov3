@@ -13,7 +13,7 @@
 </head>
 <body>
     <!--<img width=320 height=320 id="predict_image" src="./image1.jpeg"/>-->
-    <canvas is="yolov3-detection" model="http://localhost:8887/keras/model.json" anchors="/cci_anchors.txt" classes="/cci_names.txt" width=224 height=224 src="./image1.jpeg"></canvas>
+    <canvas is="yolov3-detection" model="http://localhost:8887/keras/model.json" anchors="/cci_anchors.txt" classes="/cci_names.txt" width=416 height=416 src="./image1.jpeg"></canvas>
     <input type="file" id="input_file"/>
     <script src="./tf.min.js"></script>
     <script type="module" src="./yolov3.js"></script>

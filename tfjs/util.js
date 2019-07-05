@@ -65,7 +65,9 @@ class Client{
         this.worker.postMessage(request)
         return new Promise((resolve,reject)=>this.resolves[request.id]=[resolve,reject])
     }
-
+    clear(){
+        this.resolves={}
+    }
     close(){
         this.worker.removeEventListener('message',this.listen)
     }
