@@ -3,9 +3,7 @@ import tensorflow as tf
 from os import path
 import numpy as np
 
-classes = [
-    "FlowManagement", "Heapmaterial", "Illegal_parking", "laji", "outManagement"
-]
+classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 tfrecords_size = 1000
 
 
@@ -81,38 +79,4 @@ for clazz in classes:
                 'cci_%d_%s_%d.tfrecords' % (index_records, clazz, num))
 
             record_writer.close()
-
-
-import tensorflow as tf
-import argparse
-import xml.etree.ElementTree as ET
-import os
-if hasattr(tf, 'enable_eager_execution'):
-    tf.enable_eager_execution()
-
-parser=argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
-
-parser.add_argument('--folder',type=str,help='parse folder path',default='./')
-
-FLAGS = parser.parse_args()
-xmls=tf.io.gfile.glob(os.path.join(FLAGS.folder,'**/*.xml'))
-#classes = ["FlowManagement", "Heapmaterial", "Illegal_parking", "laji", "outManagement"]
-classes = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
-list_file = open('list_5011.txt', 'w')
-for xml_path in xmls:
-    image_path=tf.io.gfile.glob(os.path.join('/'.join(xml_path.split('/')[:-2]),'**',xml_path.split('/')[-1].split('.')[0]+'.jp*g'))[0]
-    xml_root=ET.parse(xml_path.encode('utf-8')).getroot()
-    list_file.write(image_path)
-    for obj in xml_root.iter('object'):
-        difficult = obj.find('difficult').text
-        cls = obj.find('name').text
-        if cls not in classes or int(difficult) == 1:
-            continue
-        cls_id = classes.index(cls)
-        xmlbox = obj.find('bndbox')
-        b = (int(xmlbox.find('xmin').text), int(xmlbox.find('ymin').text), int(xmlbox.find('xmax').text),
-             int(xmlbox.find('ymax').text))
-        list_file.write(' '+' '.join([str(a) for a in b])+' '+ str(cls_id))
-    list_file.write('\n')
-list_file.close()
 

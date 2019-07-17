@@ -1,7 +1,6 @@
 import tensorflow as tf
 from functools import reduce
-from yolo3.utils import get_random_data
-from yolo3.model import preprocess_true_boxes
+from yolo3.utils import get_random_data,preprocess_true_boxes
 from yolo3.enum import DATASET_MODE
 from random import random
 import tensorflow_datasets as tfds
@@ -55,34 +54,6 @@ class Dataset(tf.keras.callbacks.Callback):
 
         return image, (y1, y2, y3)
 
-    def _dataset_internal(self,files,dataset_builder,parser):
-        dataset = tf.data.Dataset.from_tensor_slices(files)
-        if self.mode == DATASET_MODE.TRAIN:
-            train_num = reduce(
-                lambda x, y: x + y,
-                map(lambda file: int(self._get_num_from_name(file)),files))
-            dataset = dataset.interleave(
-                lambda file: dataset_builder(file),
-                cycle_length=len(files),
-                num_parallel_calls=AUTOTUNE).shuffle(train_num).map(
-                    parser, num_parallel_calls=AUTOTUNE).prefetch(
-                        self.batch_size).batch(self.batch_size).repeat()
-        elif self.mode == DATASET_MODE.VALIDATE:
-            dataset = dataset.interleave(
-                lambda file: dataset_builder(file),
-                cycle_length=len(files),
-                num_parallel_calls=AUTOTUNE).map(
-                    parser, num_parallel_calls=AUTOTUNE).prefetch(
-                        self.batch_size).batch(self.batch_size).repeat()
-        elif self.mode == DATASET_MODE.TEST:
-            dataset = dataset.interleave(
-                lambda file: dataset_builder(file),
-                cycle_length=len(files),
-                num_parallel_calls=AUTOTUNE).map(
-                    parser, num_parallel_calls=AUTOTUNE).prefetch(
-                        self.batch_size).batch(self.batch_size)
-        return dataset
-
     def parse_text(self, line):
         values = tf.strings.split([line],' ').values
         image = tf.image.decode_image(tf.io.read_file(values[0]),
@@ -113,6 +84,34 @@ class Dataset(tf.keras.callbacks.Callback):
         y3.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
 
         return image, (y1, y2, y3)
+
+    def _dataset_internal(self,files,dataset_builder,parser):
+        dataset = tf.data.Dataset.from_tensor_slices(files)
+        if self.mode == DATASET_MODE.TRAIN:
+            train_num = reduce(
+                lambda x, y: x + y,
+                map(lambda file: int(self._get_num_from_name(file)),files))
+            dataset = dataset.interleave(
+                lambda file: dataset_builder(file),
+                cycle_length=len(files),
+                num_parallel_calls=AUTOTUNE).shuffle(train_num).map(
+                    parser, num_parallel_calls=AUTOTUNE).prefetch(
+                        self.batch_size).batch(self.batch_size).repeat()
+        elif self.mode == DATASET_MODE.VALIDATE:
+            dataset = dataset.interleave(
+                lambda file: dataset_builder(file),
+                cycle_length=len(files),
+                num_parallel_calls=AUTOTUNE).map(
+                    parser, num_parallel_calls=AUTOTUNE).prefetch(
+                        self.batch_size).batch(self.batch_size).repeat()
+        elif self.mode == DATASET_MODE.TEST:
+            dataset = dataset.interleave(
+                lambda file: dataset_builder(file),
+                cycle_length=len(files),
+                num_parallel_calls=AUTOTUNE).map(
+                    parser, num_parallel_calls=AUTOTUNE).prefetch(
+                        self.batch_size).batch(self.batch_size)
+        return dataset
 
     def __init__(self,
                  glob_path: str,

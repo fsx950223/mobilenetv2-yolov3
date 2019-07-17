@@ -19,10 +19,6 @@
   ICML'19, https://arxiv.org/abs/1905.11946
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import re
 import collections
 import math
@@ -361,6 +357,19 @@ def round_repeats(repeats, global_params):
         return repeats
     return int(math.ceil(multiplier * repeats))
 
+class Mean(tf.keras.layers.Layer):
+
+    def __init__(self,spatial_dims,**kwargs):
+        super(Mean,self).__init__(**kwargs)
+        self.spatial_dims=spatial_dims
+
+    def call(self,inputs):
+        return tf.reduce_mean(inputs, axis=self.spatial_dims, keepdims=True)
+
+    def get_config(self):
+        config=super().get_config()
+        config['spatial_dims']=self.spatial_dims
+        return config
 
 def SEBlock(block_args, global_params):
     num_reduced_filters = max(
@@ -373,7 +382,8 @@ def SEBlock(block_args, global_params):
 
     def block(inputs):
         x = inputs
-        x = tf.keras.layers.Lambda(lambda a: tf.reduce_mean(a, axis=spatial_dims, keepdims=True))(x)
+        x = Mean(spatial_dims)(x)
+        #x = tf.keras.layers.Lambda(lambda a: tf.reduce_mean(a, axis=spatial_dims, keepdims=True))(x)
         x = tf.keras.layers.Conv2D(
             num_reduced_filters,
             kernel_size=[1, 1],
@@ -489,7 +499,10 @@ def EfficientNet(input_shape, block_args_list, global_params, include_top=True, 
 
     # Stem part
     if input_tensor is not None:
-        inputs=input_tensor
+        if not hasattr(input_tensor, '_keras_history'):
+            inputs = tf.keras.layers.Input(tensor=input_tensor, shape=input_shape)
+        else:
+            inputs = input_tensor
     else:
         inputs = tf.keras.layers.Input(shape=input_shape)
 

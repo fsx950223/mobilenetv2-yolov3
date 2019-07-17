@@ -8,7 +8,7 @@ from yolo3.model import darknet_yolo_body, YoloLoss, mobilenetv2_yolo_body, effi
 from yolo3.data import Dataset
 from yolo3.enum import OPT, BACKBONE, DATASET_MODE
 from yolo3.map import MAPCallback
-from yolo3.utils import get_anchors, get_classes
+from yolo3.utils import get_anchors, get_classes,ModelFactory
 import os
 import numpy as np
 from tensorflow.python import debug as tf_debug
@@ -20,51 +20,18 @@ tf.keras.backend.set_learning_phase(1)
 
 
 def train(FLAGS):
-    prune = False
-    opt = FLAGS.opt or None
-    backbone = FLAGS.backbone or BACKBONE.MOBILENETV2
-    log_dir = os.path.join('logs',str(backbone).split('.')[1].lower()+str(datetime.date.today()))
+    prune = FLAGS['prune']
+    opt = FLAGS['opt']
+    backbone = FLAGS['backbone']
+    log_dir = FLAGS['log_directory'] or os.path.join('logs',str(backbone).split('.')[1].lower()+str(datetime.date.today()))
     if tf.io.gfile.exists(log_dir) is not True:
         tf.io.gfile.mkdir(log_dir)
-    batch_size = FLAGS.batch_size or 8
-    train_dataset_glob=FLAGS.train_dataset or '../pascal/VOCdevkit/train/*2007*.tfrecords'
-    val_dataset_glob=FLAGS.val_dataset or '../pascal/VOCdevkit/val/*2007*.tfrecords'
-    test_dataset_glob=FLAGS.test_dataset or '../pascal/VOCdevkit/test/*2007*.tfrecords'
-    freeze_step = FLAGS.epochs[0] or 10
-    train_step = FLAGS.epochs[1] or 10
-    model_config = {
-        BACKBONE.MOBILENETV2: {
-            # "input_size": [(416, 416), (224, 224), (320, 320), (512, 512),
-            #                (608, 608)],
-            "input_size":(224,224),
-            "model_path": None,
-            "anchors_path":
-            'model_data/yolo_anchors.txt',
-            "classes_path":
-            'model_data/voc_classes.txt',
-            "learning_rate": [1e-4, 1e-4],
-            "alpha":
-            1.4
-        },
-        BACKBONE.DARKNET53: {
-            "input_size": [(416, 416), (224, 224), (320, 320), (512, 512),
-                           (608, 608)],
-            "model_path":
-            None,
-            "anchors_path":
-            'model_data/yolo_anchors.txt',
-            "classes_path":
-            'model_data/voc_classes.txt',
-            "learning_rate": [1e-4, 1e-4]
-        },
-        BACKBONE.EFFICIENTNET: {
-            "input_size": (380, 380),
-            "model_path": None,
-            "anchors_path": 'model_data/yolo_anchors.txt',
-            "classes_path": 'model_data/voc_classes.txt',
-            "learning_rate": [1e-3, 1e-4]
-        }
-    }
+    batch_size = FLAGS['batch_size']
+    train_dataset_glob=FLAGS['train_dataset']
+    val_dataset_glob=FLAGS['val_dataset']
+    test_dataset_glob=FLAGS['test_dataset']
+    freeze_step = FLAGS['epochs'][0]
+    train_step = FLAGS['epochs'][1]
 
     if opt == OPT.DEBUG:
         tf.get_logger().setLevel(tf.logging.DEBUG)
@@ -76,12 +43,12 @@ def train(FLAGS):
         sess = tf.Session(config=config)
         tf.keras.backend.set_session(sess)
 
-    class_names = get_classes(model_config[backbone]['classes_path'])
+    class_names = get_classes(FLAGS['classes_path'])
     num_classes = len(class_names)
-    anchors = get_anchors(model_config[backbone]['anchors_path'])
-    input_shape = model_config[backbone]['input_size']  # multiple of 32, hw
-    model_path = model_config[backbone]['model_path']
-    lr = model_config[backbone]['learning_rate']
+    anchors = get_anchors(FLAGS['anchors_path'])
+    input_shape = FLAGS['input_size']  # multiple of 32, hw
+    model_path = FLAGS['model']
+    lr = FLAGS['learning_rate']
 
     strategy = tf.distribute.MirroredStrategy()
     batch_size = batch_size * strategy.num_replicas_in_sync
@@ -144,7 +111,7 @@ def train(FLAGS):
                                   155,
                                   len(anchors) // 3,
                                   num_classes,
-                                  alpha=model_config[backbone]['alpha'])
+                                  alpha=FLAGS['alpha'])
         elif backbone == BACKBONE.DARKNET53:
             model = factory.build(darknet_yolo_body, 185,
                                   len(anchors) // 3, num_classes)
@@ -247,24 +214,3 @@ def train(FLAGS):
 
     # Further training if needed.
 
-
-class ModelFactory(object):
-
-    def __init__(self,
-                 input=tf.keras.layers.Input(shape=(None, None, 3)),
-                 weights_path=None):
-        self.input = input
-        self.weights_path = weights_path
-
-    def build(self, model_builder, freeze_layers=None, *args, **kwargs):
-        model_body = model_builder(self.input, *args, **kwargs)
-        if self.weights_path is not None:
-            model_body.load_weights(self.weights_path, by_name=True)
-            print('Load weights {}.'.format(self.weights_path))
-        # Freeze the darknet body or freeze all but 2 output layers.
-        freeze_layers = freeze_layers or len(model_body.layers) - 3
-        for i in range(freeze_layers):
-            model_body.layers[i].trainable = False
-        print('Freeze the first {} layers of total {} layers.'.format(
-            freeze_layers, len(model_body.layers)))
-        return model_body

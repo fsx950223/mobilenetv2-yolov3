@@ -23,31 +23,8 @@ tf.keras.backend.set_learning_phase(0)
 
 class YOLO(object):
     _defaults = {
-        "backbone": BACKBONE.MOBILENETV2,
-        "model_config": {
-            BACKBONE.MOBILENETV2: {
-                "input_size": (None, None),
-                "anchors_path": 'model_data/yolo_anchors.txt',
-                "classes_path": 'model_data/voc_classes.txt',
-                "model_path":None,
-                "alpha": 1.4
-            },
-            BACKBONE.DARKNET53: {
-                "input_size": (416, 416),
-                "model_path": '../download/darknet53_trained_weights_final.h5',
-                "anchors_path": 'model_data/yolo_anchors.txt',
-                "classes_path": 'model_data/voc_classes.txt'
-            },
-            BACKBONE.EFFICIENTNET: {
-                "input_size": (380, 380),
-                "model_path": '../download/efficientnet_trained_weights_final.h5',
-                "anchors_path": 'model_data/cci_anchors.txt',
-                "classes_path": 'model_data/cci_names.txt'
-            }
-        },
         "score": 0.2,
         "nms": 0.5,
-        "opt": OPT.XLA
     }
 
     @classmethod
@@ -57,13 +34,15 @@ class YOLO(object):
         else:
             return "Unrecognized attribute name '" + n + "'"
 
-    def __init__(self, **kwargs):
+    def __init__(self, FLAGS):
         self.__dict__.update(self._defaults)  # set up default values
+        self.backbone=FLAGS['backbone']
+        self.opt=FLAGS['opt']
         self.class_names = get_classes(
-            self.model_config[self.backbone]['classes_path'])
+            FLAGS['classes_path'])
         self.anchors = get_anchors(
-            self.model_config[self.backbone]['anchors_path'])
-        self.input_shape = self.model_config[self.backbone]['input_size']
+            FLAGS['anchors_path'])
+        self.input_shape = FLAGS['input_size']
         config = tf.ConfigProto()
 
         if self.opt == OPT.XLA:
@@ -82,13 +61,12 @@ class YOLO(object):
                 "localhost:6064")
             tf.keras.backend.set_session(sess)
         else:
-            sess = tf.get_session()
+            sess = tf.keras.backend.get_session()
         self.sess = sess
-        self.generate()
+        self.generate(FLAGS)
 
-    def generate(self):
-        model_path = os.path.expanduser(
-            self.model_config[self.backbone]['model_path'])
+    def generate(self,FLAGS):
+        model_path = os.path.expanduser(FLAGS['model'])
         assert model_path.endswith(
             '.h5'), 'Keras model or weights must be a .h5 file.'
 
@@ -99,7 +77,7 @@ class YOLO(object):
             model = tf.keras.models.load_model(model_path, compile=False)
         except:
             if self.backbone == BACKBONE.MOBILENETV2:
-                model_body= partial(mobilenetv2_yolo_body,alpha=self.model_config[self.backbone]['alpha'])
+                model_body= partial(mobilenetv2_yolo_body,alpha=FLAGS['alpha'])
             elif self.backbone == BACKBONE.DARKNET53:
                 model_body = darknet_yolo_body
             elif self.backbone == BACKBONE.EFFICIENTNET:

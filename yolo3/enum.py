@@ -10,6 +10,7 @@ class MODE(Enum):
     MAP = 5
     PRUNE = 6
     TFJS = 7
+    TRAIN_BACKBONE=8
 
 @unique
 class OPT(Enum):

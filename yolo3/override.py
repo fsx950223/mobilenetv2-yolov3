@@ -129,7 +129,7 @@ class _LayersOverride:
         self._alpha = alpha
         self._min_depth = min_depth
         self._regularizer = tf.keras.regularizers.l2(0.00004)
-        self._initializer = tf.keras.initializers.RandomNormal(stddev=0.03)
+        self._initializer = tf.random_normal_initializer(stddev=0.03)
 
     # def _FixedPaddingLayer(self,kernel_size):
     #     return tf.keras.layers.Lambda(lambda x: _fixed_padding(x, kernel_size))
