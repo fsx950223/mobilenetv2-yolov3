@@ -1,6 +1,7 @@
-# mobilenetv2-yolov3
+# Mobilenetv2-Yolov3
 Tensorflow implementation mobilenetv2-yolov3 inspired by [keras-yolo3](https://github.com/qqwweee/keras-yolo3.git)
 
+---
 # Update
 Backend:
 - [x] MobilenetV2
@@ -25,7 +26,7 @@ Tensorflow:
 - [x] Use tfds to load dataset
 - [x] Remove image shape input when use session
 - [ ] Convert model to tensorflow lite model
-- [x] Multi GPU training support
+- [x] Multi GPU training
 
 Serving:
 - [x] Tensorflow Serving warm up request
@@ -33,24 +34,38 @@ Serving:
 - [x] Tensorflow Serving Python Client
 - [x] Tensorflow Serving Service Control Client
 - [ ] Tensorflow Serving Server Build and Plugins develop 
-
-# Requirement
+---
+# Requirements
 Tensorflow-1.14+
 
 Numpy-1.16.2+
 
 Python-3.6.7+
 
+---
 # Usage
-Change arguments in main.py,then exec
+Get help info:
+``` bash
+python main.py --help
 ```
-python main.py
+Train:
+``` bash
+python main.py --mode=TRAIN
 ```
+Predict:
+``` bash
+python main.py --mode=IMAGE
+```
+Use custom config file:
+``` bash
+python main.py --mobilenetv2.yaml
+```
+
 ---
 
-# Train
+# Resources
 * Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
-* Change [train.py](https://github.com/fsx950223/mobilenetv2-yolov3/blob/master/train.py)
+* Download pre-trained mobilenetv2-yolov3 model(VOC2007+VOC2012) [TODO]()
 
 ```
 opt = <your session config>
@@ -67,8 +82,7 @@ val_dataset_glob = <val glob>
 # Performance
 3 times faster than darknet53-yolov3 with alpha=1.4 and higher accuracy
 
-# Pascal Dataset
-I have packaged a pascal tfrecords for you.See [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF)
+---
 
 # Reference:<br>
 paper: <br>
