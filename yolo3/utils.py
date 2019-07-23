@@ -151,11 +151,11 @@ def get_random_data(image,
         ymins = ymins * nh / ih + dy
         ymaxs = ymaxs * nh / ih + dy
         if flip:
-            image, xmin, xmax = tf.cond(
+            image, xmins, xmaxs = tf.cond(
                 tf.less(
                     tf.random.uniform([]),
-                    0.5), lambda: (tf.image.flip_left_right(image), w - xmax, w
-                                   - xmin), lambda: (image, xmin, xmax))
+                    0.5), lambda: (tf.image.flip_left_right(image), w - xmaxs, w
+                                   - xmins), lambda: (image, xmins, xmaxs))
         if hue > 0:
             image = tf.image.random_hue(image, hue)
         if sat > 1:

@@ -95,17 +95,17 @@ def train(FLAGS):
     if tf.version.VERSION.startswith('1.'):
         loss = [
             lambda y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 0, anchors, print_loss=True), lambda
+                y_true, yolo_output, 0, anchors, print_loss=False), lambda
             y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 1, anchors, print_loss=True), lambda
+                y_true, yolo_output, 1, anchors, print_loss=False), lambda
             y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 2, anchors, print_loss=True)
+                y_true, yolo_output, 2, anchors, print_loss=False)
         ]
     else:
-        loss = [YoloLoss(idx, anchors, print_loss=True) for idx in range(3)]
+        loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(3)]
 
     with strategy.scope():
-        factory = ModelFactory(weights_path=model_path)
+        factory = ModelFactory(tf.keras.layers.Input(shape=(*input_shape,3)),weights_path=model_path)
         if backbone == BACKBONE.MOBILENETV2:
             model = factory.build(mobilenetv2_yolo_body,
                                   155,
@@ -179,7 +179,7 @@ def train(FLAGS):
             epochs=freeze_step,
             initial_epoch=0,
             steps_per_epoch=max(1, train_num // batch_size),
-            callbacks=[logging, checkpoint, train_dataset_callback],
+            callbacks=[logging, checkpoint],
             validation_data=val_dataset,
             validation_steps=max(1, val_num // batch_size))
         model.save_weights(
@@ -201,8 +201,7 @@ def train(FLAGS):
                            initial_epoch=freeze_step,
                            steps_per_epoch=max(1, train_num // batch_size),
                            callbacks=[
-                               checkpoint, cos_lr, logging, map_callback,
-                               train_dataset_callback, early_stopping
+                               checkpoint, cos_lr, logging, map_callback, early_stopping
                            ],
                            validation_data=val_dataset,
                            validation_steps=max(1, val_num // batch_size))
