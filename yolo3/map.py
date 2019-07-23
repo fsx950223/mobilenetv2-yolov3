@@ -77,15 +77,12 @@ class MAPCallback(tf.keras.callbacks.Callback):
         bind(test_dataset_builder, self.parse_tfrecord)
         bind(test_dataset_builder, self.parse_text)
         test_dataset,test_num = test_dataset_builder.build()
-        options = tf.data.Options()
-        options.experimental_distribute.auto_shard = False
-        test_dataset = test_dataset.with_options(options)
         true_res = {}
         pred_res = []
         idx = 0
         APs = {}
         start = timer()
-        for image, bbox in test_dataset.take(10):
+        for image, bbox in test_dataset:
             if self.input_shape != (None, None):
                 boxed_image, resized_image_shape = letterbox_image(
                     image, tuple(reversed(self.input_shape)))

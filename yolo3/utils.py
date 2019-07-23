@@ -75,11 +75,11 @@ def get_classes(classes_path):
 
 
 def get_random_data(image,
-                    xmin,
-                    xmax,
-                    ymin,
-                    ymax,
-                    label,
+                    xmins,
+                    xmaxs,
+                    ymins,
+                    ymaxs,
+                    labels,
                     input_shape,
                     min_scale=0.25,
                     max_scale=2,
@@ -103,11 +103,11 @@ def get_random_data(image,
                      tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
     w, h = tf.cast(input_shape[1], tf.float32), tf.cast(input_shape[0],
                                                         tf.float32)
-    xmax = tf.expand_dims(xmax, 0)
-    xmin = tf.expand_dims(xmin, 0)
-    ymax = tf.expand_dims(ymax, 0)
-    ymin = tf.expand_dims(ymin, 0)
-    label = tf.expand_dims(label, 0)
+    xmaxs = tf.expand_dims(xmaxs, 0)
+    xmins = tf.expand_dims(xmins, 0)
+    ymaxs = tf.expand_dims(ymaxs, 0)
+    ymins = tf.expand_dims(ymins, 0)
+    labels = tf.expand_dims(labels, 0)
     if train:
         new_ar = (w / h) * (tf.random.uniform([], 1 - jitter, 1 + jitter) /
                             tf.random.uniform([], 1 - jitter, 1 + jitter))
@@ -146,16 +146,16 @@ def get_random_data(image,
                                      tf.float32) * (128 / 255)
         image = image_color_padded + new_image
 
-        xmin = xmin * nw / iw + dx
-        xmax = xmax * nw / iw + dx
-        ymin = ymin * nh / ih + dy
-        ymax = ymax * nh / ih + dy
+        xmins = xmins * nw / iw + dx
+        xmaxs = xmaxs * nw / iw + dx
+        ymins = ymins * nh / ih + dy
+        ymaxs = ymaxs * nh / ih + dy
         if flip:
-            image, xmin, xmax = tf.cond(
+            image, xmins, xmaxs = tf.cond(
                 tf.less(
                     tf.random.uniform([]),
-                    0.5), lambda: (tf.image.flip_left_right(image), w - xmax, w
-                                   - xmin), lambda: (image, xmin, xmax))
+                    0.5), lambda: (tf.image.flip_left_right(image), w - xmaxs, w
+                                   - xmins), lambda: (image, xmins, xmaxs))
         if hue > 0:
             image = tf.image.random_hue(image, hue)
         if sat > 1:
@@ -191,12 +191,12 @@ def get_random_data(image,
         image_color_padded = tf.cast(tf.equal(new_image, 0),
                                      tf.float32) * (128 / 255)
         image = image_color_padded + new_image
-        xmin = xmin * nw / iw + dx
-        xmax = xmax * nw / iw + dx
-        ymin = ymin * nh / ih + dy
-        ymax = ymax * nh / ih + dy
+        xmins = xmins * nw / iw + dx
+        xmaxs = xmaxs * nw / iw + dx
+        ymins = ymins * nh / ih + dy
+        ymaxs = ymaxs * nh / ih + dy
 
-    bbox = tf.concat([xmin, ymin, xmax, ymax, tf.cast(label, tf.float32)], 0)
+    bbox = tf.concat([xmins, ymins, xmaxs, ymaxs, tf.cast(labels, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
     bbox = tf.clip_by_value(bbox,
@@ -210,3 +210,94 @@ def get_random_data(image,
         tf.shape(bbox)[0], max_boxes), lambda: bbox[:max_boxes], lambda: bbox)
 
     return image, bbox
+
+def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
+    '''Preprocess true boxes to training input format
+
+    Parameters
+    ----------
+    true_boxes: array, shape=(m, T, 5)
+        Absolute x_min, y_min, x_max, y_max, class_id relative to input_shape.
+    input_shape: array-like, wh, multiples of 32
+    anchors: array, shape=(N, 2), wh
+    num_classes: integer
+
+    Returns
+    -------
+    y_true: list of array, shape like yolo_outputs, xywh are reletive value
+
+    '''
+    num_layers = len(anchors) // 3  # default setting
+    anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
+    true_boxes = np.array(true_boxes, dtype='float32')
+    input_shape = np.array(input_shape, dtype='int32')
+    boxes_xy = (true_boxes[..., 0:2] + true_boxes[..., 2:4]) // 2
+    boxes_wh = true_boxes[..., 2:4] - true_boxes[..., 0:2]
+    true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
+    true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
+
+    grid_shapes = [np.round(input_shape / [32, 16, 8][l]).astype(np.int32) for l in range(num_layers)]
+    y_true = [
+        np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(
+            anchor_mask[l]), 5 + num_classes),
+                 dtype='float32') for l in range(num_layers)
+    ]
+
+    # Expand dim to apply broadcasting.
+    anchors = np.expand_dims(anchors, 0)
+    anchor_maxes = anchors / 2.
+    anchor_mins = -anchor_maxes
+    valid_mask = boxes_wh[..., 0] > 0
+    wh = boxes_wh[valid_mask]
+    # Expand dim to apply broadcasting.
+    wh = np.expand_dims(wh, -2)
+    box_maxes = wh / 2.
+    box_mins = -box_maxes
+
+    intersect_mins = np.maximum(box_mins, anchor_mins)
+    intersect_maxes = np.minimum(box_maxes, anchor_maxes)
+    intersect_wh = np.maximum(intersect_maxes - intersect_mins, 0.)
+    intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
+    box_area = wh[..., 0] * wh[..., 1]
+    anchor_area = anchors[..., 0] * anchors[..., 1]
+    iou = intersect_area / (box_area + anchor_area - intersect_area)
+
+    # Find best anchor for each true box
+    best_anchor = np.argmax(iou, axis=-1)
+
+    for t, n in enumerate(best_anchor):
+        for l in range(num_layers):
+            if n in anchor_mask[l]:
+                i = np.floor(true_boxes[t, 0] *
+                             grid_shapes[l][1]).astype('int32')
+                j = np.floor(true_boxes[t, 1] *
+                             grid_shapes[l][0]).astype('int32')
+                k = anchor_mask[l].index(n)
+                c = true_boxes[t, 4].astype('int32')
+                y_true[l][j, i, k, 0:4] = true_boxes[t, 0:4]
+                y_true[l][j, i, k, 4] = 1.
+                y_true[l][j, i, k, 5 + c] = 1.
+
+    return y_true[0], y_true[1], y_true[2]
+
+
+class ModelFactory(object):
+
+    def __init__(self,
+                 input=tf.keras.layers.Input(shape=(None, None, 3)),
+                 weights_path=None):
+        self.input = input
+        self.weights_path = weights_path
+
+    def build(self, model_builder, freeze_layers=None, *args, **kwargs):
+        model_body = model_builder(self.input, *args, **kwargs)
+        if self.weights_path is not None:
+            model_body.load_weights(self.weights_path, by_name=True)
+            print('Load weights {}.'.format(self.weights_path))
+        # Freeze the darknet body or freeze all but 2 output layers.
+        freeze_layers = freeze_layers or len(model_body.layers) - 3
+        for i in range(freeze_layers):
+            model_body.layers[i].trainable = False
+        print('Freeze the first {} layers of total {} layers.'.format(
+            freeze_layers, len(model_body.layers)))
+        return model_body

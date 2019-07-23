@@ -1,0 +1,5 @@
+backbone: DARKNET53
+input_size: [416,416]
+anchors_path: 'model_data/yolo_anchors.txt'
+classes_path: 'model_data/voc_classes.txt'
+learning_rate: [1e-4, 1e-4]

@@ -1,57 +1,14 @@
 """YOLO_v3 Model Defined in Keras."""
 
-from functools import wraps,partial
+
 from yolo3.enum import BOX_LOSS
 import numpy as np
 import tensorflow as tf
 from typing import List, Tuple
 from yolo3.utils import compose
 from yolo3.override import mobilenet_v2
+from yolo3.darknet import DarknetConv2D_BN_Leaky,DarknetConv2D,darknet_body
 from yolo3.efficient_keras_model import EfficientNetB4,MBConvBlock,get_model_params,BlockArgs
-
-
-@wraps(tf.keras.layers.Conv2D)
-def DarknetConv2D(*args, **kwargs):
-    """Wrapper to set Darknet parameters for Convolution2D."""
-    # darknet_conv_kwargs = {'kernel_regularizer': tf.keras.regularizers.l2(5e-4)}
-    darknet_conv_kwargs = {}
-    darknet_conv_kwargs['padding'] = 'valid' if kwargs.get('strides') == (
-        2, 2) else 'same'
-    darknet_conv_kwargs.update(kwargs)
-    return tf.keras.layers.Conv2D(*args, **darknet_conv_kwargs)
-
-
-def DarknetConv2D_BN_Leaky(*args, **kwargs):
-    """Darknet Convolution2D followed by BatchNormalization and LeakyReLU."""
-    no_bias_kwargs = {'use_bias': False}
-    no_bias_kwargs.update(kwargs)
-    return compose(DarknetConv2D(*args, **no_bias_kwargs),
-                   tf.keras.layers.BatchNormalization(),
-                   tf.keras.layers.LeakyReLU(alpha=0.1))
-
-
-def resblock_body(x, num_filters, num_blocks):
-    '''A series of resblocks starting with a downsampling Convolution2D'''
-    # Darknet uses left and top padding instead of 'same' mode
-    x = tf.keras.layers.ZeroPadding2D(((1, 0), (1, 0)))(x)
-    x = DarknetConv2D_BN_Leaky(num_filters, (3, 3), strides=(2, 2))(x)
-    for i in range(num_blocks):
-        y = compose(DarknetConv2D_BN_Leaky(num_filters // 2, (1, 1)),
-                    DarknetConv2D_BN_Leaky(num_filters, (3, 3)))(x)
-        x = tf.keras.layers.Add()([x, y])
-    return x
-
-
-def darknet_body(x):
-    '''Darknent body having 52 Convolution2D layers'''
-    x = DarknetConv2D_BN_Leaky(32, (3, 3))(x)
-    x = resblock_body(x, 64, 1)
-    x = resblock_body(x, 128, 2)
-    x = resblock_body(x, 256, 8)
-    x = resblock_body(x, 512, 8)
-    x = resblock_body(x, 1024, 4)
-    return x
-
 
 def make_last_layers(x, num_filters, out_filters):
     '''6 Conv2D_BN_Leaky layers followed by a Conv2D_linear layer'''
@@ -67,7 +24,9 @@ def make_last_layers(x, num_filters, out_filters):
 
 def darknet_yolo_body(inputs, num_anchors, num_classes):
     """Create YOLO_V3 model CNN body in Keras."""
-    darknet = tf.keras.Model(inputs, darknet_body(inputs))
+    if not hasattr(inputs, '_keras_history'):
+        inputs = tf.keras.layers.Input(tensor=inputs)
+    darknet=darknet_body(inputs,include_top=False)
     x, y1 = make_last_layers(darknet.output, 512,
                              num_anchors * (num_classes + 5))
 
@@ -169,6 +128,7 @@ def MobilenetConv2D(kernel, alpha, filters):
         tf.keras.layers.BatchNormalization(), tf.keras.layers.ReLU(6.))
 
 
+
 def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     mobilenetv2 = mobilenet_v2(default_batchnorm_momentum=0.9,
                                alpha=alpha,
@@ -210,7 +170,7 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     ])
     x, y3 = make_last_layers_mobilenet(x, 25, 128,
                                        num_anchors * (num_classes + 5))
-    y1=tf.keras.layers.Lambda(lambda y:tf.reshape(y,[-1,tf.shape(y)[1],tf.shape(y)[2],num_anchors,num_classes + 5]), name='y1')(y1)
+    y1=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1],tf.shape(y)[2],num_anchors,num_classes + 5]), name='y1')(y1)
     y2=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y2')(y2)
     y3=tf.keras.layers.Lambda(lambda y: tf.reshape(y,[-1,tf.shape(y)[1], tf.shape(y)[2], num_anchors, num_classes + 5]), name='y3')(y3)
     return tf.keras.models.Model(inputs, [y1, y2, y3])
@@ -250,8 +210,8 @@ def make_last_layers_efficientnet(x,block_args,global_params):
                                use_bias=False))(x)
     return x, y
 
-def efficientnet_yolo_body(_,model_name,num_anchors,override_params):
-    _,global_params,input_shape=get_model_params(model_name,override_params)
+def efficientnet_yolo_body(inputs,model_name,num_anchors,**kwargs):
+    _,global_params,input_shape=get_model_params(model_name,kwargs)
     num_classes = global_params.num_classes
     if global_params.data_format == 'channels_first':
         channel_axis = 1
@@ -260,8 +220,8 @@ def efficientnet_yolo_body(_,model_name,num_anchors,override_params):
     efficientnet=EfficientNetB4(
         include_top=False,
         weights='imagenet',
-        classes=num_classes,
-        input_shape=(input_shape,input_shape,3))
+        input_shape=(input_shape,input_shape,3),
+        input_tensor=inputs)
     block_args = BlockArgs(
         kernel_size=3,
         num_repeat=1,
@@ -377,7 +337,6 @@ def yolo_boxes_and_scores(feats: tf.Tensor, anchors: List[Tuple[float, float]],
     box_scores = tf.reshape(box_scores, [-1, num_classes])
     return boxes, box_scores
 
-
 def yolo_eval(yolo_outputs: List[tf.Tensor],
               anchors: np.ndarray,
               num_classes: int,
@@ -426,75 +385,29 @@ def yolo_eval(yolo_outputs: List[tf.Tensor],
     boxes_ = tf.cast(boxes_, tf.int32, name='boxes')
     return boxes_, scores_, classes_
 
-def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
-    '''Preprocess true boxes to training input format
+class YoloEval(tf.keras.layers.Layer):
+    def __init__(self,anchors,num_classes,image_shape,max_boxes=20,score_threshold=.6,iou_threshold=.5,**kwargs):
+        super(YoloEval,self).__init__(**kwargs)
+        self.anchors=anchors
+        self.num_classes=num_classes
+        self.image_shape=image_shape
+        self.max_boxes=max_boxes
+        self.score_threshold=score_threshold
+        self.iou_threshold=iou_threshold
 
-    Parameters
-    ----------
-    true_boxes: array, shape=(m, T, 5)
-        Absolute x_min, y_min, x_max, y_max, class_id relative to input_shape.
-    input_shape: array-like, wh, multiples of 32
-    anchors: array, shape=(N, 2), wh
-    num_classes: integer
+    def call(self,yolo_outputs):
+        return yolo_eval(yolo_outputs,self.anchors,self.num_classes,self.image_shape,self.max_boxes,self.score_threshold,self.iou_threshold)
 
-    Returns
-    -------
-    y_true: list of array, shape like yolo_outputs, xywh are reletive value
+    def get_config(self):
+        config=super(YoloEval,self).get_config()
+        config['anchors']=self.anchors
+        config['num_classes']=self.num_classes
+        config['image_shape']=self.image_shape
+        config['max_boxes']=self.max_boxes
+        config['score_threshold']=self.score_threshold
+        config['iou_threshold']=self.iou_threshold
 
-    '''
-    num_layers = len(anchors) // 3  # default setting
-    anchor_mask = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
-    true_boxes = np.array(true_boxes, dtype='float32')
-    input_shape = np.array(input_shape, dtype='int32')
-    boxes_xy = (true_boxes[..., 0:2] + true_boxes[..., 2:4]) // 2
-    boxes_wh = true_boxes[..., 2:4] - true_boxes[..., 0:2]
-    true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
-    true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
-
-    grid_shapes = [np.round(input_shape / [32, 16, 8][l]).astype(np.int32) for l in range(num_layers)]
-    y_true = [
-        np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(
-            anchor_mask[l]), 5 + num_classes),
-                 dtype='float32') for l in range(num_layers)
-    ]
-
-    # Expand dim to apply broadcasting.
-    anchors = np.expand_dims(anchors, 0)
-    anchor_maxes = anchors / 2.
-    anchor_mins = -anchor_maxes
-    valid_mask = boxes_wh[..., 0] > 0
-    wh = boxes_wh[valid_mask]
-    # Expand dim to apply broadcasting.
-    wh = np.expand_dims(wh, -2)
-    box_maxes = wh / 2.
-    box_mins = -box_maxes
-
-    intersect_mins = np.maximum(box_mins, anchor_mins)
-    intersect_maxes = np.minimum(box_maxes, anchor_maxes)
-    intersect_wh = np.maximum(intersect_maxes - intersect_mins, 0.)
-    intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
-    box_area = wh[..., 0] * wh[..., 1]
-    anchor_area = anchors[..., 0] * anchors[..., 1]
-    iou = intersect_area / (box_area + anchor_area - intersect_area)
-
-    # Find best anchor for each true box
-    best_anchor = np.argmax(iou, axis=-1)
-
-    for t, n in enumerate(best_anchor):
-        for l in range(num_layers):
-            if n in anchor_mask[l]:
-                i = np.floor(true_boxes[t, 0] *
-                             grid_shapes[l][1]).astype('int32')
-                j = np.floor(true_boxes[t, 1] *
-                             grid_shapes[l][0]).astype('int32')
-                k = anchor_mask[l].index(n)
-                c = true_boxes[t, 4].astype('int32')
-                y_true[l][j, i, k, 0:4] = true_boxes[t, 0:4]
-                y_true[l][j, i, k, 4] = 1.
-                y_true[l][j, i, k, 5 + c] = 1.
-
-    return y_true[0], y_true[1], y_true[2]
-
+        return config
 
 def box_iou(b1, b2):
     '''Return iou tensor

@@ -1,0 +1,4 @@
+backbone: MOBILENETV2
+input_size: (224,224)
+learning_rate: [1e-4, 1e-4]
+alpha: 1.4
