@@ -83,22 +83,24 @@ class YOLO(object):
             elif self.backbone == BACKBONE.EFFICIENTNET:
                 model_body = partial(efficientnet_yolo_body,model_name='efficientnet-b4')
             if tf.executing_eagerly():
+                input=tf.keras.layers.Input(shape=(*self.input_shape, 3),
+                                          name='predict_image')
                 model = model_body(
-                    tf.keras.layers.Input(shape=(*self.input_shape, 3),
-                                          name='predict_image'),
+                    input,
                     num_anchors=num_anchors // 3, num_classes=num_classes)
             else:
-                self.input = tf.keras.layers.Input(shape=(None, None, 3),
+                input = tf.keras.layers.Input(shape=(None, None, 3),
                                                    name='predict_image',
                                                    dtype=tf.uint8)
-                input = tf.map_fn(
+                input_image = tf.map_fn(
                     lambda image: tf.image.convert_image_dtype(
-                        image, tf.float32), self.input, tf.float32)
-                image, shape = letterbox_image(input, self.input_shape)
-                self.input_image_shape = tf.shape(input)[1:3]
+                        image, tf.float32), input, tf.float32)
+                image, shape = letterbox_image(input_image, self.input_shape)
+                self.input_image_shape = tf.shape(input_image)[1:3]
                 image = tf.reshape(image, [-1, *self.input_shape, 3])
                 model = model_body(image, num_anchors=num_anchors // 3,
                                    num_classes=num_classes)
+            self.input=input
             model.load_weights(model_path)  # make sure model, anchors and classes match
         else:
             assert model.layers[-1].output_shape[-1] == \
@@ -110,13 +112,6 @@ class YOLO(object):
             self.yolo_model = model
         else:
             output=YoloEval(self.anchors,len(self.class_names),self.input_image_shape,score_threshold=self.score,iou_threshold=self.nms,name='yolo')(model.output)
-            # output = tf.keras.layers.Lambda(lambda input: yolo_eval(
-            #     input,
-            #     self.anchors,
-            #     len(self.class_names),
-            #     self.input_image_shape,
-            #     score_threshold=self.score,
-            #     iou_threshold=self.nms),name='yolo')(model.output)
             self.yolo_model = tf.keras.Model(model.input, output)
         # Generate output tensor targets for filtered bounding boxes.
         hsv_tuples: List[Tuple[float, float, float]] = [
@@ -208,21 +203,18 @@ def export_tfjs_model(yolo,path):
     tfjs.converters.save_keras_model(yolo.yolo_model, path,quantization_dtype=np.uint8)
 
 def export_serving_model(yolo, path):
-    if tf.version.VERSION.startswith('1.'):
-        tf.saved_model.simple_save(
-            yolo.sess,
-            path,
-            inputs={'predict_image:0': yolo.input},
-            outputs={t.name: t for t in yolo.yolo_model.output})
-    else:
-        signature_def_map = {
-            tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-            tf.saved_model.signature_def_utils.predict_signature_def(
-                {'predict_image:0': yolo.input},
-                {t.name: t for t in yolo.yolo_model.output})
-        }
-        tf.saved_model.experimental.save(yolo.yolo_model, path,
-                                         signature_def_map)
+    if tf.io.gfile.exists(path):
+        overwrite = input("Overwrite existed model(yes/no):")
+        if overwrite=='yes':
+            tf.io.gfile.rmtree(path)
+        else:
+            raise ValueError("Export directory already exists, and isn't empty. Please choose a different export directory, or delete all the contents of the specified directory: "+path)
+    tf.saved_model.simple_save(
+        yolo.sess,
+        path,
+        inputs={'predict_image:0': yolo.input},
+        outputs={t.name: t for t in yolo.yolo_model.output})
+
     asset_extra=os.path.join(path,"assets.extra")
     tf.io.gfile.mkdir(asset_extra)
     with tf.io.TFRecordWriter(os.path.join(asset_extra,"tf_serving_warmup_requests")) as writer:
@@ -250,7 +242,7 @@ def export_tflite_model(yolo, path):
     input_arrays = converter.get_input_arrays()
     converter.quantized_input_stats = {input_arrays[0]: (0., 1.)}
     tflite_model = converter.convert()
-    open(path, "wb").write(tflite_model)
+    tf.io.gfile.GFile(path, "wb").write(tflite_model)
 
 def calculate_map(yolo, glob):
     mAP = MAPCallback(glob,

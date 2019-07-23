@@ -91,14 +91,16 @@ class MAPCallback(tf.keras.callbacks.Callback):
                 new_image_size = (width - (width % 32), height - (height % 32))
                 boxed_image, resized_image_shape = letterbox_image(
                     image, new_image_size)
-            output = self.model.predict(boxed_image.numpy())
-            out_boxes, out_scores, out_classes = yolo_eval(
-                output,
-                self.anchors,
-                self.num_classes,
-                image.shape[1:3],
-                score_threshold=self.score,
-                iou_threshold=self.nms)
+            one_device_strategy = tf.distribute.OneDeviceStrategy("/gpu:0")
+            with one_device_strategy.scope():
+                output = self.model.predict(boxed_image.numpy())
+                out_boxes, out_scores, out_classes = yolo_eval(
+                    output,
+                    self.anchors,
+                    self.num_classes,
+                    image.shape[1:3],
+                    score_threshold=self.score,
+                    iou_threshold=self.nms)
             if len(out_classes) > 0:
                 for i in range(len(out_classes)):
                     top, left, bottom, right = out_boxes[i]

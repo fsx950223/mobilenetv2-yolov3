@@ -2,7 +2,7 @@ import tensorflow as tf
 from yolo3.data import Dataset
 from yolo3.override import mobilenet_v2
 from yolo3.darknet import darknet_body
-from yolo3.efficient_keras_model import EfficientNetB4
+from yolo3.efficientnet import EfficientNetB4
 from yolo3.utils import get_classes,ModelFactory
 from yolo3.enum import BACKBONE
 import os

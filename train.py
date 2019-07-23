@@ -77,14 +77,9 @@ def train(FLAGS):
                                                     save_weights_only=True,
                                                     save_best_only=True,
                                                     period=3)
-    if tf.version.VERSION.startswith('1.'):
-        cos_lr = tf.keras.callbacks.LearningRateScheduler(
-            lambda epoch, _: tf.train.cosine_decay(lr[1], epoch - freeze_step,
-                                                   train_step)().numpy(), 1)
-    else:
-        cos_lr = tf.keras.callbacks.LearningRateScheduler(
-            lambda epoch, _: tf.keras.experimental.CosineDecay(
-                lr[1], train_step)(epoch - freeze_step).numpy(), 1)
+    cos_lr = tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch, _: tf.keras.experimental.CosineDecay(
+            lr[1], train_step)(epoch - freeze_step).numpy(), 1)
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
         min_delta=0,
@@ -92,17 +87,7 @@ def train(FLAGS):
         verbose=1)
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
-    if tf.version.VERSION.startswith('1.'):
-        loss = [
-            lambda y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 0, anchors, print_loss=False), lambda
-            y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 1, anchors, print_loss=False), lambda
-            y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 2, anchors, print_loss=False)
-        ]
-    else:
-        loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(3)]
+    loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(3)]
 
     with strategy.scope():
         factory = ModelFactory(tf.keras.layers.Input(shape=(*input_shape,3)),weights_path=model_path)
@@ -122,7 +107,7 @@ def train(FLAGS):
             override_params['num_classes']=num_classes
             override_params['drop_connect_rate'] = 0.2
             override_params['data_format']='channels_first'
-            model=factory.build(efficientnet_yolo_body,499,'efficientnet-b4',len(anchors) // 3,batch_norm_momentum=0.9,batch_norm_epsilon=1e-3,num_classes=num_classes,drop_connect_rate=0.2,data_format="channels_first")
+            model=factory.build(efficientnet_yolo_body,499,FLAGS['model_name'],len(anchors) // 3,batch_norm_momentum=0.9,batch_norm_epsilon=1e-3,num_classes=num_classes,drop_connect_rate=0.2,data_format="channels_first")
 
     if prune:
         from tensorflow_model_optimization.python.core.api.sparsity import keras as sparsity

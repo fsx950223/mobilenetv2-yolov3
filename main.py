@@ -1,10 +1,10 @@
 from absl import app,flags
 import tensorflow as tf
-if hasattr(tf, 'enable_eager_execution'):
+if tf.version.VERSION.startswith('1.'):
     tf.enable_eager_execution()
-if hasattr(tf, 'enable_v2_behavior'):
+if tf.version.VERSION.startswith('1.'):
     tf.enable_v2_behavior()
-if hasattr(tf, 'enable_v2_tensorshape'):
+if tf.version.VERSION.startswith('1.'):
     tf.enable_v2_tensorshape()
 from yolo3.enum import BACKBONE,MODE,OPT
 from train import train
@@ -15,16 +15,16 @@ import os
 
 FLAGS=flags.FLAGS
 
-flags.DEFINE_enum_class('backbone',default=BACKBONE.EFFICIENTNET,enum_class=BACKBONE,help="Select network backbone, One of {'MOBILENETV2','DARKNET53','EFFICIENTNET'}")
+flags.DEFINE_enum_class('backbone',default=BACKBONE.MOBILENETV2,enum_class=BACKBONE,help="Select network backbone, One of {'MOBILENETV2','DARKNET53','EFFICIENTNET'}")
 flags.DEFINE_integer('batch_size',default=8,lower_bound=0,help="Train batch size")
 flags.DEFINE_string('config',default=None,help="Config path")
 flags.DEFINE_multi_integer('epochs',default=[10,10],lower_bound=0,help="Frozen train epochs and Full train epochs")
-flags.DEFINE_string('export',default='export_model/7',help="Export path")
+flags.DEFINE_string('export',default='export_model/8',help="Export path")
 flags.DEFINE_string('input',default=None,help="Input data for various mode")
 flags.DEFINE_multi_integer('input_size',default=(380,380),lower_bound=0,help="Input size")
 flags.DEFINE_string('log_directory',default=None,help="Log directory")
-flags.DEFINE_string('model',default=None,help="Model path")
-flags.DEFINE_enum_class('mode',default=MODE.TRAIN,enum_class=MODE,help="Select exec mode, One of {'TRAIN','TRAIN_BACKBONE','IMAGE','VIDEO','TFLITE','SERVING','MAP','PRUNE'}")
+flags.DEFINE_string('model',default='../download/mobilenetv2_trained_weights_final (1).h5',help="Model path")
+flags.DEFINE_enum_class('mode',default=MODE.SERVING,enum_class=MODE,help="Select exec mode, One of {'TRAIN','TRAIN_BACKBONE','IMAGE','VIDEO','TFLITE','SERVING','MAP','PRUNE'}")
 flags.DEFINE_string('gpus',default='0',help="Specific gpu indexes to run")
 flags.DEFINE_string('train_dataset',default='../pascal/VOCdevkit/train/*.tfrecords',help="Dataset glob for train")
 flags.DEFINE_string('val_dataset',default='../pascal/VOCdevkit/val/*.tfrecords',help="Dataset glob for validate")
@@ -41,6 +41,12 @@ def parse_tuple(val):
         return tuple([int(num) for num in val[1:-1].split(',')])
     return tuple(val)
 
+def log(msg):
+    if tf.version.VERSION.startswith('1.'):
+        tf.logging.info(msg)
+    else:
+        print(msg)
+        
 def main(_):
     flags_dict=FLAGS.flag_values_dict()
     if FLAGS.config is not None:
@@ -62,33 +68,43 @@ def main(_):
                 config['learning_rate']=[float(lr) for lr in config['learning_rate']]
             flags_dict.update(config)
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpus
+    os.environ["CUDA_VISIBLE_DEVICES"] = flags_dict['gpus']
+    if flags_dict['backbone'] is None:
+        raise ValueError("Please select your model's backbone")
     if FLAGS.mode==MODE.TRAIN:
-        tf.logging.info('Train mode')
+        log('Train mode')
         train(flags_dict)
     elif FLAGS.mode==MODE.TRAIN_BACKBONE:
-        tf.logging.info('Train backbone mode')
+        log('Train backbone mode')
         train_backbone(flags_dict)
     elif FLAGS.mode==MODE.IMAGE:
-        tf.logging.info('Image detection mode')
+        if flags_dict['model'] is None:
+            raise ValueError('Please enter your model path')
+        log('Image detection mode')
         detect_img(YOLO(flags_dict))
     elif FLAGS.mode==MODE.VIDEO:
-        tf.logging.info('Video detection mode')
+        if flags_dict['model'] is None:
+            raise ValueError('Please enter your model path')
+        log('Video detection mode')
         detect_video(YOLO(flags_dict), FLAGS.input, FLAGS.output)
     elif FLAGS.mode==MODE.MAP:
-        tf.logging.info('Calculate test dataset map')
+        if flags_dict['model'] is None:
+            raise ValueError('Please enter your model path')
+        log('Calculate test dataset map')
         calculate_map(YOLO(flags_dict),FLAGS.test_dataset)
     elif FLAGS.mode==MODE.SERVING:
-        tf.logging.info('Export hdf5 model to serving model')
+        tf.disable_eager_execution()
+        log('Export hdf5 model to serving model')
         export_serving_model(YOLO(flags_dict),FLAGS.export)
     elif FLAGS.mode==MODE.TFLITE:
-        tf.logging.info('Export hdf5 model to tflite model')
+        log('Export hdf5 model to tflite model')
         export_tflite_model(YOLO(flags_dict),FLAGS.export)
     elif FLAGS.mode==MODE.TFJS:
-        tf.logging.info('Export hdf5 model to tensorflow.js model')
+        log('Export hdf5 model to tensorflow.js model')
         export_tfjs_model(YOLO(flags_dict),FLAGS.export)
 
 
 if __name__=='__main__':
-    tf.logging.set_verbosity(tf.logging.INFO)
+    if tf.version.VERSION.startswith('1.'):
+        tf.logging.set_verbosity(tf.logging.INFO)
     app.run(main)
