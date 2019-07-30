@@ -47,13 +47,13 @@ pip install -r requirements.txt
 python main.py --help
 ```
 ### Train:
-First: Format file name like [name]_[number].[extension] <br>
-Second: If you are using txt dataset, please format records like [image_path] [,[xmin ymin xmax ymax class]] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format), else you should use modify voc_annotation.py, then run <br>
+1. Format file name like [name]_[number].[extension] <br>
+2. If you are using txt dataset, please format records like [image_path] [,[xmin ymin xmax ymax class]] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format), else you should use modify voc_annotation.py, then run <br>
 ``` bash
 python voc_annotation.py
 ``` 
 to parse your data to tfrecords. <br>
-Third: Run <br>
+3. Run <br>
 ``` bash
 python main.py --mode=TRAIN --train_dataset_glob=<your dataset glob>
 ```
@@ -72,7 +72,11 @@ python main.py --config=mobilenetv2.yaml
 ```
 
 ---
+# Set up tensorflow.js model
+1. Create a web server on project folder <br>
+2. Open browser and enter [your_url:your_port]/tfjs <br>
 
+---
 # Resources
 * Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
 * Download pre-trained mobilenetv2-yolov3 model(VOC2007) [here](https://drive.google.com/open?id=1B0vVQsuWY-zfuyol38-R5XJs1mntIwqZ)
