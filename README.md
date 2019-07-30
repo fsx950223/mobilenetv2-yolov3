@@ -47,13 +47,13 @@ pip install -r requirements.txt
 python main.py --help
 ```
 ### Train:
-First: Format file name like <name>_<number>.<extension> <br>
-Second: If you are using txt dataset, please format records like <image_path> [<xmin> <ymin> <xmax> <ymax> <class>] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format),else you should use modify voc_annotation.py,then run 
+First: Format file name like [name]_[number].[extension] <br>
+Second: If you are using txt dataset, please format records like [image_path] [,[xmin ymin xmax ymax class]] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format), else you should use modify voc_annotation.py, then run <br>
 ``` bash
 python voc_annotation.py
 ``` 
-to parse your data to tfrecords.
-Third: Run
+to parse your data to tfrecords. <br>
+Third: Run <br>
 ``` bash
 python main.py --mode=TRAIN --train_dataset_glob=<your dataset glob>
 ```
@@ -75,7 +75,7 @@ python main.py --config=mobilenetv2.yaml
 
 # Resources
 * Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
-* Download pre-trained mobilenetv2-yolov3 model(VOC2007+VOC2012) [here](https://drive.google.com/open?id=1B0vVQsuWY-zfuyol38-R5XJs1mntIwqZ)
+* Download pre-trained mobilenetv2-yolov3 model(VOC2007) [here](https://drive.google.com/open?id=1B0vVQsuWY-zfuyol38-R5XJs1mntIwqZ)
 
 ---
 
@@ -116,8 +116,6 @@ Model size: 37M <br>
 # Reference
 paper: <br>
 - [YOLOv3: An Incremental Improvement](https://arxiv.org/abs/1804.02767)<br>
-- [Foca Loss for Dense Object Detection](https://arxiv.org/abs/1708.02002)<br>
-- [Group Normalization](https://arxiv.org/abs/1803.08494)<br>
 - [An Analysis of Scale Invariance in Object Detection - SNIP](https://arxiv.org/abs/1711.08189)<br>
 - [Scale-Aware Trident Networks for Object Detection](https://arxiv.org/abs/1901.01892)<br>
 - [Understanding the Effective Receptive Field in Deep Convolutional Neural Networks](https://arxiv.org/abs/1701.04128)<br>
