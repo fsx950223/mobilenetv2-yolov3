@@ -72,7 +72,7 @@ python main.py --config=mobilenetv2.yaml
 ```
 
 ---
-# Set up tensorflow.js model
+# Set up tensorflow.js model (Live Demo: https://fsx950223.github.io/mobilenetv2-yolov3/tfjs/)
 1. Create a web server on project folder <br>
 2. Open browser and enter [your_url:your_port]/tfjs <br>
 

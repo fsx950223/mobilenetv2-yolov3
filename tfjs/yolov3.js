@@ -30,7 +30,7 @@ function workerHandler(){
         self.HTMLCanvasElement = OffscreenCanvas;
     }
     window = this
-    importScripts(`${window.location.origin}/tf.min.js`,`${window.location.origin}/util.js`)
+    importScripts(`${window.location.origin}/mobilenetv2-yolov3/tfjs/tf.min.js`,`${window.location.origin}/mobilenetv2-yolov3/tfjs/util.js`)
     class YoloV3{
         constructor(anchors,num_classes,input_shape){
             anchors=anchors.map(item=>Number(item))
