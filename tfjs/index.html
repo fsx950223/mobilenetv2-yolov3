@@ -6,7 +6,7 @@
     <script>
         if ('serviceWorker' in navigator) {
           window.addEventListener('load', function() {
-            navigator.serviceWorker.register(`${window.location.origin}/sw.js`).then(reg=>reg.update());
+            navigator.serviceWorker.register(`${window.location.origin}/mobilenetv2-yolov3/tfjs/sw.js`).then(reg=>reg.update());
           });
         }
     </script>
