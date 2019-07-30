@@ -39,6 +39,15 @@ function workerHandler(){
             this.input_shape=input_shape.map(item=>Number(item))
             this.num_anchors=parseInt(this.anchors.shape[0]/3)
         }
+
+        /**
+         * Build model from factory
+         * @param model_dir the model path where needs to be loaded
+         * @param anchors anchors list
+         * @param num_classes classes total number
+         * @param input_shape input image shape
+         * @returns {Promise<YoloV3>}
+         */
         static async build(model_dir,anchors,num_classes,input_shape){
             const yolov3=new YoloV3(anchors,num_classes,input_shape)
             yolov3.model=await tf.loadLayersModel(model_dir)
@@ -63,10 +72,10 @@ function workerHandler(){
         }
 
         /**
-         *
-         * @param feats
-         * @param anchor
-         * @returns {*[]}
+         * Extract infos from feature
+         * @param feats the feature need to be extracted
+         * @param anchor the anchor of current branch
+         * @returns {*[box position,box width and height,box confidence,box class]}
          */
         yolo_head(feats,anchor){
             const anchors_tensor=tf.reshape(anchor, [1, 1, 1, this.num_anchors, 2])
