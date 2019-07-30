@@ -1,5 +1,6 @@
 from enum import Enum, unique
 
+
 @unique
 class MODE(Enum):
     TRAIN = 0
@@ -10,7 +11,8 @@ class MODE(Enum):
     MAP = 5
     PRUNE = 6
     TFJS = 7
-    TRAIN_BACKBONE=8
+    TRAIN_BACKBONE = 8
+
 
 @unique
 class OPT(Enum):

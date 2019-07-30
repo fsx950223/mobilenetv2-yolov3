@@ -2,6 +2,7 @@ from functools import wraps
 import tensorflow as tf
 from yolo3.utils import compose
 
+
 @wraps(tf.keras.layers.Conv2D)
 def DarknetConv2D(*args, **kwargs):
     """Wrapper to set Darknet parameters for Convolution2D."""
@@ -34,7 +35,7 @@ def resblock_body(x, num_filters, num_blocks):
     return x
 
 
-def darknet_body(inputs,include_top=True,classes=1000):
+def darknet_body(inputs, include_top=True, classes=1000):
     '''Darknent body having 52 Convolution2D layers'''
     x = DarknetConv2D_BN_Leaky(32, (3, 3))(inputs)
     x = resblock_body(x, 64, 1)
@@ -44,6 +45,8 @@ def darknet_body(inputs,include_top=True,classes=1000):
     x = resblock_body(x, 1024, 4)
     if include_top:
         x = tf.keras.layers.GlobalAveragePooling2D()(x)
-        x = tf.keras.layers.Dense(classes, activation='softmax',
-                         use_bias=True, name='Logits')(x)
+        x = tf.keras.layers.Dense(classes,
+                                  activation='softmax',
+                                  use_bias=True,
+                                  name='Logits')(x)
     return tf.keras.Model(inputs, x)
