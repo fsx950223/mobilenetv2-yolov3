@@ -55,7 +55,7 @@ def get_anchors(anchors_path):
     with open(anchors_path) as f:
         anchors = f.readline()
     anchors = [float(x) for x in anchors.split(',')]
-    return np.array(anchors,np.float32).reshape(-1, 2)
+    return np.array(anchors, np.float32).reshape(-1, 2)
 
 
 def bind(instance, func, as_name=None):
@@ -98,7 +98,7 @@ def get_random_data(image,
                     max_jpeg_quality=100,
                     train: bool = True):
     '''random preprocessing for real-time data augmentation'''
-
+    input_shape=tf.keras.backend.get_value(input_shape)
     iw, ih = tf.cast(tf.shape(image)[1],
                      tf.float32), tf.cast(tf.shape(image)[0], tf.float32)
     w, h = tf.cast(input_shape[1], tf.float32), tf.cast(input_shape[0],
@@ -196,7 +196,8 @@ def get_random_data(image,
         ymins = ymins * nh / ih + dy
         ymaxs = ymaxs * nh / ih + dy
 
-    bbox = tf.concat([xmins, ymins, xmaxs, ymaxs, tf.cast(labels, tf.float32)], 0)
+    bbox = tf.concat([xmins, ymins, xmaxs, ymaxs,
+                      tf.cast(labels, tf.float32)], 0)
     bbox = tf.transpose(bbox, [1, 0])
     image = tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
     bbox = tf.clip_by_value(bbox,
@@ -210,6 +211,7 @@ def get_random_data(image,
         tf.shape(bbox)[0], max_boxes), lambda: bbox[:max_boxes], lambda: bbox)
 
     return image, bbox
+
 
 def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     '''Preprocess true boxes to training input format
@@ -236,7 +238,10 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     true_boxes[..., 0:2] = boxes_xy / input_shape[::-1]
     true_boxes[..., 2:4] = boxes_wh / input_shape[::-1]
 
-    grid_shapes = [np.round(input_shape / [32, 16, 8][l]).astype(np.int32) for l in range(num_layers)]
+    grid_shapes = [
+        np.round(input_shape / [32, 16, 8][l]).astype(np.int32)
+        for l in range(num_layers)
+    ]
     y_true = [
         np.zeros((grid_shapes[l][0], grid_shapes[l][1], len(
             anchor_mask[l]), 5 + num_classes),

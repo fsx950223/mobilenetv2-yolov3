@@ -9,17 +9,18 @@ import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import cv2
 import tensorflow as tf
-from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body,efficientnet_yolo_body,YoloEval
+from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body, efficientnet_yolo_body, YoloEval
 from yolo3.utils import letterbox_image, get_anchors, get_classes
 from yolo3.enum import OPT, BACKBONE
 from yolo3.map import MAPCallback
 import os
 from typing import List, Tuple
-from tensorflow_serving.apis import prediction_log_pb2,predict_pb2
+from tensorflow_serving.apis import prediction_log_pb2, predict_pb2
 from tensorflow.python import debug as tf_debug
 from functools import partial
 
 tf.keras.backend.set_learning_phase(0)
+
 
 class YOLO(object):
     _defaults = {
@@ -36,12 +37,10 @@ class YOLO(object):
 
     def __init__(self, FLAGS):
         self.__dict__.update(self._defaults)  # set up default values
-        self.backbone=FLAGS['backbone']
-        self.opt=FLAGS['opt']
-        self.class_names = get_classes(
-            FLAGS['classes_path'])
-        self.anchors = get_anchors(
-            FLAGS['anchors_path'])
+        self.backbone = FLAGS['backbone']
+        self.opt = FLAGS['opt']
+        self.class_names = get_classes(FLAGS['classes_path'])
+        self.anchors = get_anchors(FLAGS['anchors_path'])
         self.input_shape = FLAGS['input_size']
         config = tf.ConfigProto()
 
@@ -65,10 +64,11 @@ class YOLO(object):
         self.sess = sess
         self.generate(FLAGS)
 
-    def generate(self,FLAGS):
+    def generate(self, FLAGS):
         model_path = os.path.expanduser(FLAGS['model'])
-        assert model_path.endswith(
-            '.h5'), 'Keras model or weights must be a .h5 file.'
+        if model_path.endswith(
+            '.h5') is not True:
+            model_path=tf.train.latest_checkpoint(model_path)
 
         # Load model, or construct model and load weights.
         num_anchors = len(self.anchors)
@@ -77,31 +77,35 @@ class YOLO(object):
             model = tf.keras.models.load_model(model_path, compile=False)
         except:
             if self.backbone == BACKBONE.MOBILENETV2:
-                model_body= partial(mobilenetv2_yolo_body,alpha=FLAGS['alpha'])
+                model_body = partial(mobilenetv2_yolo_body,
+                                     alpha=FLAGS['alpha'])
             elif self.backbone == BACKBONE.DARKNET53:
                 model_body = darknet_yolo_body
             elif self.backbone == BACKBONE.EFFICIENTNET:
-                model_body = partial(efficientnet_yolo_body,model_name='efficientnet-b4')
+                model_body = partial(efficientnet_yolo_body,
+                                     model_name='efficientnet-b4')
             if tf.executing_eagerly():
-                input=tf.keras.layers.Input(shape=(*self.input_shape, 3),
-                                          name='predict_image')
-                model = model_body(
-                    input,
-                    num_anchors=num_anchors // 3, num_classes=num_classes)
+                input = tf.keras.layers.Input(shape=(*self.input_shape, 3),
+                                              name='predict_image')
+                model = model_body(input,
+                                   num_anchors=num_anchors // 3,
+                                   num_classes=num_classes)
             else:
                 input = tf.keras.layers.Input(shape=(None, None, 3),
-                                                   name='predict_image',
-                                                   dtype=tf.uint8)
+                                              name='predict_image',
+                                              dtype=tf.uint8)
                 input_image = tf.map_fn(
                     lambda image: tf.image.convert_image_dtype(
                         image, tf.float32), input, tf.float32)
                 image, shape = letterbox_image(input_image, self.input_shape)
                 self.input_image_shape = tf.shape(input_image)[1:3]
                 image = tf.reshape(image, [-1, *self.input_shape, 3])
-                model = model_body(image, num_anchors=num_anchors // 3,
+                model = model_body(image,
+                                   num_anchors=num_anchors // 3,
                                    num_classes=num_classes)
-            self.input=input
-            model.load_weights(model_path)  # make sure model, anchors and classes match
+            self.input = input
+            model.load_weights(
+                model_path)  # make sure model, anchors and classes match
         else:
             assert model.layers[-1].output_shape[-1] == \
                    num_anchors / len(model.output) * (num_classes + 5), \
@@ -111,7 +115,12 @@ class YOLO(object):
         if tf.executing_eagerly():
             self.yolo_model = model
         else:
-            output=YoloEval(self.anchors,len(self.class_names),self.input_image_shape,score_threshold=self.score,iou_threshold=self.nms,name='yolo')(model.output)
+            output = YoloEval(self.anchors,
+                              len(self.class_names),
+                              self.input_image_shape,
+                              score_threshold=self.score,
+                              iou_threshold=self.nms,
+                              name='yolo')(model.output)
             self.yolo_model = tf.keras.Model(model.input, output)
         # Generate output tensor targets for filtered bounding boxes.
         hsv_tuples: List[Tuple[float, float, float]] = [
@@ -128,7 +137,7 @@ class YOLO(object):
             self.colors)  # Shuffle colors to decorrelate adjacent classes.
         np.random.seed(None)  # Reset seed to default.
 
-    def detect_image(self, image,draw=True) -> Image:
+    def detect_image(self, image, draw=True) -> Image:
         if tf.executing_eagerly():
             image_data = tf.expand_dims(image, 0)
             if self.input_shape != (None, None):
@@ -198,26 +207,33 @@ class YOLO(object):
         else:
             return out_boxes, out_scores, out_classes
 
-def export_tfjs_model(yolo,path):
+
+def export_tfjs_model(yolo, path):
     import tensorflowjs as tfjs
-    tfjs.converters.save_keras_model(yolo.yolo_model, path,quantization_dtype=np.uint8)
+    tfjs.converters.save_keras_model(yolo.yolo_model,
+                                     path,
+                                     quantization_dtype=np.uint8)
+
 
 def export_serving_model(yolo, path):
     if tf.io.gfile.exists(path):
         overwrite = input("Overwrite existed model(yes/no):")
-        if overwrite=='yes':
+        if overwrite == 'yes':
             tf.io.gfile.rmtree(path)
         else:
-            raise ValueError("Export directory already exists, and isn't empty. Please choose a different export directory, or delete all the contents of the specified directory: "+path)
+            raise ValueError(
+                "Export directory already exists, and isn't empty. Please choose a different export directory, or delete all the contents of the specified directory: "
+                + path)
     tf.saved_model.simple_save(
         yolo.sess,
         path,
         inputs={'predict_image:0': yolo.input},
         outputs={t.name: t for t in yolo.yolo_model.output})
 
-    asset_extra=os.path.join(path,"assets.extra")
+    asset_extra = os.path.join(path, "assets.extra")
     tf.io.gfile.mkdir(asset_extra)
-    with tf.io.TFRecordWriter(os.path.join(asset_extra,"tf_serving_warmup_requests")) as writer:
+    with tf.io.TFRecordWriter(
+            os.path.join(asset_extra, "tf_serving_warmup_requests")) as writer:
         request = predict_pb2.PredictRequest()
         request.model_spec.name = 'detection'
         request.model_spec.signature_name = 'serving_default'
@@ -228,15 +244,18 @@ def export_serving_model(yolo, path):
                                  Image.BILINEAR)
         image_data = np.array(image, dtype='uint8')
         image_data = np.expand_dims(image_data, 0)
-        request.inputs['predict_image:0'].CopyFrom(tf.make_tensor_proto(image_data))
-        log=prediction_log_pb2.PredictionLog(predict_log=prediction_log_pb2.PredictLog(request=request))
+        request.inputs['predict_image:0'].CopyFrom(
+            tf.make_tensor_proto(image_data))
+        log = prediction_log_pb2.PredictionLog(
+            predict_log=prediction_log_pb2.PredictLog(request=request))
         writer.write(log.SerializeToString())
+
 
 def export_tflite_model(yolo, path):
     yolo.yolo_model.input.set_shape([None, *yolo.input_shape, 3])
     converter = tf.lite.TFLiteConverter.from_session(
         yolo.sess, [yolo.yolo_model.input], list(yolo.yolo_model.output))
-    converter.allow_custom_ops=True
+    converter.allow_custom_ops = True
     converter.inference_type = tf.lite.constants.FLOAT
     converter.optimizations = [tf.lite.Optimize.OPTIMIZE_FOR_SIZE]
     input_arrays = converter.get_input_arrays()
@@ -244,11 +263,9 @@ def export_tflite_model(yolo, path):
     tflite_model = converter.convert()
     tf.io.gfile.GFile(path, "wb").write(tflite_model)
 
+
 def calculate_map(yolo, glob):
-    mAP = MAPCallback(glob,
-                      yolo.input_shape,
-                      yolo.anchors,
-                      yolo.class_names)
+    mAP = MAPCallback(glob, yolo.input_shape, yolo.anchors, yolo.class_names)
     mAP.set_model(yolo.yolo_model)
     APs = mAP.calculate_aps()
     for cls in range(len(yolo.class_names)):
@@ -257,41 +274,32 @@ def calculate_map(yolo, glob):
     mAP = np.mean([APs[cls] for cls in APs])
     print('mAP: ', mAP)
 
-def detect_imgs(yolo,input):
-    with open(input) as file:
-        for image_path in file.readlines():
-            image_path=image_path.strip()
-            try:
-                if tf.executing_eagerly():
-                    content = tf.io.read_file(image_path)
-                    image = tf.image.decode_image(content,
-                                                  channels=3,
-                                                  dtype=tf.float32)
-                else:
-                    image = Image.open(image_path)
-            except:
-                print('Open Error! Try again!')
-            else:
-                r_image = yolo.detect_image(image)
-                r_image.save(os.path.join('chengyun',image_path.split('/')[-1]))
-    yolo.close_session()
+def inference_img(image_path):
+    try:
+        if tf.executing_eagerly():
+            content = tf.io.read_file(image_path)
+            image = tf.image.decode_image(content,
+                                            channels=3,
+                                            dtype=tf.float32)
+        else:
+            image = Image.open(image_path)
+    except:
+        print('Open Error! Try again!')
+    else:
+        r_image = yolo.detect_image(image)
+        r_image.show()
+
 
 def detect_img(yolo):
     while True:
-        image_path = input('Input image filename:')
-        try:
-            if tf.executing_eagerly():
-                content = tf.io.read_file(image_path)
-                image = tf.image.decode_image(content,
-                                              channels=3,
-                                              dtype=tf.float32)
-            else:
-                image = Image.open(image_path)
-        except:
-            print('Open Error! Try again!')
+        inputs = input('Input image filename:')
+        if inputs.endsWith('.txt'):
+            with open(input) as file:
+                for image_path in file.readlines():
+                    image_path = image_path.strip()
+                    inference_img(image_path)
         else:
-            r_image = yolo.detect_image(image)
-            r_image.show()
+            inference_img(inputs)
     yolo.close_session()
 
 
@@ -312,10 +320,9 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
     curr_fps = 0
     fps = "FPS: ??"
     prev_time = timer()
-    detected=False
-    trackers=[]
-    font = ImageFont.truetype(font='font/FiraMono-Medium.otf',
-                              size=30)
+    detected = False
+    trackers = []
+    font = ImageFont.truetype(font='font/FiraMono-Medium.otf', size=30)
     thickness = 1
     frame_count = 0
     while True:
@@ -324,11 +331,11 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
         image_data = np.array(image) / 255.
         draw = ImageDraw.Draw(image)
         if detected:
-            for tracker,predicted_class in trackers:
-                success,box=tracker.update(frame)
-                left,top,width,height=box
-                right=left+width
-                bottom=top+height
+            for tracker, predicted_class in trackers:
+                success, box = tracker.update(frame)
+                left, top, width, height = box
+                right = left + width
+                bottom = top + height
 
                 label = '{}'.format(predicted_class)
 
@@ -347,28 +354,28 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
                      tuple(text_origin + label_size)],
                     fill=yolo.colors[c])
                 draw.text(text_origin, label, fill=(0, 0, 0), font=font)
-                frame_count+=1
+                frame_count += 1
                 if frame_count == 100:
                     for tracker in trackers:
                         del tracker
-                    trackers=[]
-                    frame_count=0
-                    detected=False
+                    trackers = []
+                    frame_count = 0
+                    detected = False
         else:
             if tf.executing_eagerly():
-                boxes, scores, classes = yolo.detect_image(image_data,False)
+                boxes, scores, classes = yolo.detect_image(image_data, False)
             else:
                 boxes, scores, classes = yolo.detect_image(image, False)
             for i, c in enumerate(classes):
                 predicted_class = yolo.class_names[c]
-                top, left, bottom, right=boxes[i]
-                height=abs(bottom-top)
-                width=abs(right-left)
+                top, left, bottom, right = boxes[i]
+                height = abs(bottom - top)
+                width = abs(right - left)
                 tracker = cv2.TrackerCSRT_create()
                 #tracker = cv2.TrackerKCF_create()
                 #tracker = cv2.TrackerMOSSE_create()
-                tracker.init(frame,(left,top,width,height))
-                trackers.append([tracker,predicted_class])
+                tracker.init(frame, (left, top, width, height))
+                trackers.append([tracker, predicted_class])
 
                 label = '{}'.format(predicted_class)
                 label_size = draw.textsize(label, font)
@@ -386,7 +393,7 @@ def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
                      tuple(text_origin + label_size)],
                     fill=yolo.colors[c])
                 draw.text(text_origin, label, fill=(0, 0, 0), font=font)
-            detected=True
+            detected = True
         del draw
         result = np.asarray(image)
         curr_time = timer()

@@ -1,20 +1,13 @@
 import tensorflow as tf
 from functools import reduce
-from yolo3.utils import get_random_data,preprocess_true_boxes
+from yolo3.utils import get_random_data, preprocess_true_boxes
 from yolo3.enum import DATASET_MODE
-from random import random
 import tensorflow_datasets as tfds
-import math
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
-class Dataset(tf.keras.callbacks.Callback):
-
-    def on_batch_end(self, batch, logs=None):
-        if hasattr(self, 'input_shapes'):
-            index = math.floor(random() * len(self.input_shapes))
-            self.input_shape.assign(self.input_shapes[index])
+class Dataset:
 
     def parse_tfrecord(self, example_proto):
         feature_description = {
@@ -48,14 +41,14 @@ class Dataset(tf.keras.callbacks.Callback):
             preprocess_true_boxes,
             [bbox, self.input_shape, self.anchors, self.num_classes],
             [tf.float32, tf.float32, tf.float32])
-        y1.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
-        y2.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
-        y3.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
+        y1.set_shape([None, None, len(self.anchors) // 3, self.num_classes + 5])
+        y2.set_shape([None, None, len(self.anchors) // 3, self.num_classes + 5])
+        y3.set_shape([None, None, len(self.anchors) // 3, self.num_classes + 5])
 
         return image, (y1, y2, y3)
 
     def parse_text(self, line):
-        values = tf.strings.split([line],' ').values
+        values = tf.strings.split([line], ' ').values
         image = tf.image.decode_image(tf.io.read_file(values[0]),
                                       channels=3,
                                       dtype=tf.float32)
@@ -79,18 +72,18 @@ class Dataset(tf.keras.callbacks.Callback):
             preprocess_true_boxes,
             [bbox, self.input_shape, self.anchors, self.num_classes],
             [tf.float32, tf.float32, tf.float32])
-        y1.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
-        y2.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
-        y3.set_shape([None, None, len(self.anchors)//3, self.num_classes + 5])
+        y1.set_shape([None, None, len(self.anchors) // 3, self.num_classes + 5])
+        y2.set_shape([None, None, len(self.anchors) // 3, self.num_classes + 5])
+        y3.set_shape([None, None, len(self.anchors) // 3, self.num_classes + 5])
 
         return image, (y1, y2, y3)
 
-    def _dataset_internal(self,files,dataset_builder,parser):
+    def _dataset_internal(self, files, dataset_builder, parser):
         dataset = tf.data.Dataset.from_tensor_slices(files)
         if self.mode == DATASET_MODE.TRAIN:
             train_num = reduce(
                 lambda x, y: x + y,
-                map(lambda file: int(self._get_num_from_name(file)),files))
+                map(lambda file: int(self._get_num_from_name(file)), files))
             dataset = dataset.interleave(
                 lambda file: dataset_builder(file),
                 cycle_length=len(files),
@@ -136,11 +129,17 @@ class Dataset(tf.keras.callbacks.Callback):
     def _get_num_from_name(self, name):
         return int(name.split('/')[-1].split('.')[0].split('_')[-1])
 
-    def build(self,split=None):
+    def build(self, split=None):
+        if self.glob_path is None:
+            return None,0
         if self.glob_path in tfds.list_builders():
-            return tfds.load(name=self.glob_path, split=split, with_info=True,as_supervised=True,try_gcs=tfds.is_dataset_on_gcs(self.glob_path))
+            return tfds.load(name=self.glob_path,
+                             split=split,
+                             with_info=True,
+                             as_supervised=True,
+                             try_gcs=tfds.is_dataset_on_gcs(self.glob_path))
         files = tf.io.gfile.glob(self.glob_path)
-        if len(files)==0:
+        if len(files) == 0:
             raise ValueError('No file found')
         try:
             num = reduce(lambda x, y: x + y,
@@ -149,15 +148,19 @@ class Dataset(tf.keras.callbacks.Callback):
             raise ValueError(
                 'Please format file name like <name>_<number>.<extension>')
         else:
-            tfrecords=list(filter(lambda file:file.endswith('.tfrecords'),files))
-            txts=list(filter(lambda file: file.endswith('.txt'), files))
-            if len(tfrecords)>0:
-                tfrecords_dataset=self._dataset_internal(tfrecords,tf.data.TFRecordDataset, self.parse_tfrecord)
+            tfrecords = list(
+                filter(lambda file: file.endswith('.tfrecords'), files))
+            txts = list(filter(lambda file: file.endswith('.txt'), files))
+            if len(tfrecords) > 0:
+                tfrecords_dataset = self._dataset_internal(
+                    tfrecords, tf.data.TFRecordDataset, self.parse_tfrecord)
             if len(txts) > 0:
-                txts_dataset=self._dataset_internal(txts,tf.data.TextLineDataset,self.parse_text)
-            if len(tfrecords)>0 and len(txts) > 0:
-                return tfrecords_dataset.concatenate(txts_dataset),num
-            elif len(tfrecords)>0:
+                txts_dataset = self._dataset_internal(txts,
+                                                      tf.data.TextLineDataset,
+                                                      self.parse_text)
+            if len(tfrecords) > 0 and len(txts) > 0:
+                return tfrecords_dataset.concatenate(txts_dataset), num
+            elif len(tfrecords) > 0:
                 return tfrecords_dataset, num
-            elif len(txts)>0:
+            elif len(txts) > 0:
                 return txts_dataset, num
