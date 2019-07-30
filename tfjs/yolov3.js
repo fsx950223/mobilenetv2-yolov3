@@ -208,7 +208,7 @@ class YoloV3Components extends HTMLCanvasElement{
     async connectedCallback(){
         const [anchors,classes]=await Promise.all([fetch(this.attributes.anchors.value).then(res=>res.text()),fetch(this.attributes.classes.value).then(res=>res.text())])
         this.anchors=anchors.split(',')
-        this.classes=classes.split(',')
+        this.classes=classes.split('\n')
         const res=await this.client.init(this.attributes.model.value,this.anchors,this.classes.length,[this.attributes.width.value,this.attributes.height.value])
         this.draw()
     }
