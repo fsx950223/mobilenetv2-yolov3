@@ -1,4 +1,5 @@
 backbone: EFFICIENTNET
+model_name: 'efficientnet-b4'
 input_size: (380,380)
 anchors_path: 'model_data/yolo_anchors.txt'
 classes_path: 'model_data/voc_classes.txt'
