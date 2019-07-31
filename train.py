@@ -107,7 +107,7 @@ def train(FLAGS):
         loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(len(anchors) // 3)]
 
     with strategy.scope():
-        factory = ModelFactory(tf.keras.layers.Input(shape=(None,None, 3)),
+        factory = ModelFactory(tf.keras.layers.Input(shape=(*input_shape, 3)),
                                weights_path=model_path)
         if backbone == BACKBONE.MOBILENETV2:
             model = factory.build(mobilenetv2_yolo_body,
@@ -119,12 +119,6 @@ def train(FLAGS):
             model = factory.build(darknet_yolo_body, 185,
                                   len(anchors) // 3, num_classes)
         elif backbone == BACKBONE.EFFICIENTNET:
-            override_params = {}
-            override_params['batch_norm_momentum'] = 0.9
-            override_params['batch_norm_epsilon'] = 1e-3
-            override_params['num_classes'] = num_classes
-            override_params['drop_connect_rate'] = 0.2
-            override_params['data_format'] = 'channels_first'
             model = factory.build(efficientnet_yolo_body,
                                   499,
                                   FLAGS['model_name'],

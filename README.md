@@ -80,6 +80,7 @@ python main.py --config=mobilenetv2.yaml
 # Resources
 * Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
 * Download pre-trained mobilenetv2-yolov3 model(VOC2007) [here](https://drive.google.com/open?id=1B0vVQsuWY-zfuyol38-R5XJs1mntIwqZ)
+* Download pre-trained efficientnet-yolov3 model(VOC2007) [here](https://drive.google.com/open?id=10A2BqNrQp5_hIcBzGXu6Xiv4mCQzga2q)
 
 ---
 
@@ -114,7 +115,37 @@ mAP:  0.6198638263857212
 GPU inference time (Python+MX150): 78ms <br>
 CPU inference time (Python+i7-8550U): 112ms <br>
 Model size: 37M <br>
-
+<br>
+Network: Efficientnet+Yolov3 <br>
+Input size: 380*380 <br>
+Dataset: VOC2007 <br>
+mAP: <br>
+```
+aeroplane ap:  0.6492260838166934
+bicycle ap:  0.8010712280076165
+bird ap:  0.7013865117634108
+boat ap:  0.5557173155813903
+bottle ap:  0.4353563564340365
+bus ap:  0.753804699972881
+car ap:  0.7878183961387922
+cat ap:  0.8632726491920759
+chair ap:  0.4090719340574334
+cow ap:  0.6657089830054761
+diningtable ap:  0.6513494390619038
+dog ap:  0.8466486584164448
+horse ap:  0.8328765157511936
+motorbike ap:  0.7607912651726462
+person ap:  0.7089970516297166
+pottedplant ap:  0.32875322571854027
+sheep ap:  0.6372370950276296
+sofa ap:  0.675301446703759
+train ap:  0.7734685594308568
+tvmonitor ap:  0.6505409659737674
+mAP:  0.6744199190428132
+```
+GPU inference time (Python+MX150): 105ms <br>
+CPU inference time (Python+i7-8550U): 168ms <br>
+Model size: 77M <br>
 ---
 
 # Reference
