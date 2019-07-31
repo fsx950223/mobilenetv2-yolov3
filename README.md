@@ -1,5 +1,5 @@
 # Mobilenetv2-Yolov3
-Tensorflow implementation mobilenetv2-yolov3 inspired by [keras-yolo3](https://github.com/qqwweee/keras-yolo3.git)
+Tensorflow implementation mobilenetv2-yolov3 and efficientnet-yolov3 inspired by [keras-yolo3](https://github.com/qqwweee/keras-yolo3.git)
 
 ---
 # Update
@@ -48,12 +48,22 @@ python main.py --help
 ```
 ### Train:
 1. Format file name like [name]_[number].[extension] <br>
-2. If you are using txt dataset, please format records like [image_path] [,[xmin ymin xmax ymax class]] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format), else you should use modify voc_annotation.py, then run <br>
+Example: <br>
+```
+voc_train_3998.txt
+```
+<br>
+2. If you are using txt dataset, please format records like [image_path] [,[xmin ymin xmax ymax class]] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format), else you should modify voc_annotation.py, then run <br>
 ``` bash
 python voc_annotation.py
 ``` 
 to parse your data to tfrecords. <br>
-3. Run <br>
+Example: <br>
+```
+/image/path 179 66 272 290 14 172 38 317 349 14 276 2 426 252 14 1 32 498 365 13
+```
+<br>
+3. Run: <br>
 ``` bash
 python main.py --mode=TRAIN --train_dataset_glob=<your dataset glob>
 ```
@@ -146,6 +156,7 @@ mAP:  0.6744199190428132
 GPU inference time (Python+MX150): 105ms <br>
 CPU inference time (Python+i7-8550U): 168ms <br>
 Model size: 77M <br>
+
 ---
 
 # Reference
