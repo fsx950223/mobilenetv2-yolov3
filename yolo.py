@@ -83,7 +83,13 @@ class YOLO(object):
                 model_body = darknet_yolo_body
             elif self.backbone == BACKBONE.EFFICIENTNET:
                 model_body = partial(efficientnet_yolo_body,
-                                     model_name='efficientnet-b4')
+                                     model_name='efficientnet-b4',
+                                     num_anchors=num_anchors // 3,
+                                     batch_norm_momentum=0.9,
+                                     batch_norm_epsilon=1e-3,
+                                     num_classes=num_classes,
+                                     drop_connect_rate=0.2,
+                                     data_format="channels_first")
             if tf.executing_eagerly():
                 input = tf.keras.layers.Input(shape=(*self.input_shape, 3),
                                               name='predict_image')
@@ -211,8 +217,7 @@ class YOLO(object):
 def export_tfjs_model(yolo, path):
     import tensorflowjs as tfjs
     tfjs.converters.save_keras_model(yolo.yolo_model,
-                                     path,
-                                     quantization_dtype=np.uint8)
+                                     path)
 
 
 def export_serving_model(yolo, path):
