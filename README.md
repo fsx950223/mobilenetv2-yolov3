@@ -54,16 +54,19 @@ voc_train_3998.txt
 ```
 <br>
 2. If you are using txt dataset, please format records like [image_path] [,[xmin ymin xmax ymax class]] <br>(for convenience, you can modify voc_text.py to parse your data to specific data format), else you should modify voc_annotation.py, then run <br>
+
 ``` bash
 python voc_annotation.py
 ``` 
 to parse your data to tfrecords. <br>
 Example: <br>
+
 ```
 /image/path 179 66 272 290 14 172 38 317 349 14 276 2 426 252 14 1 32 498 365 13
 ```
 <br>
 3. Run: <br>
+
 ``` bash
 python main.py --mode=TRAIN --train_dataset_glob=<your dataset glob>
 ```
