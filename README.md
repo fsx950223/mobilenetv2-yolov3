@@ -94,14 +94,17 @@ python main.py --config=mobilenetv2.yaml
 * Download pascal tfrecords from [here](https://drive.google.com/drive/folders/172sH75LPeUd2yyzAnrce0LLe2UR_kFqF).
 * Download pre-trained mobilenetv2-yolov3 model(VOC2007) [here](https://drive.google.com/open?id=1B0vVQsuWY-zfuyol38-R5XJs1mntIwqZ)
 * Download pre-trained efficientnet-yolov3 model(VOC2007) [here](https://drive.google.com/open?id=10A2BqNrQp5_hIcBzGXu6Xiv4mCQzga2q)
+* Download pre-trained efficientnet-yolov3 model(VOC2007+2012) [here](https://drive.google.com/open?id=1dYfi1z5EeNsXMLACwoeR4jGj7RWyCcZp)
 
 ---
 
 # Performance
 Network: Mobilenetv2+Yolov3 <br>
 Input size: 416*416 <br>
-Dataset: VOC2007 <br>
+Train Dataset: VOC2007 <br>
+Test Dataset: VOC2007 <br>
 mAP: <br>
+
 ```
 aeroplane ap:  0.585270123970341
 bicycle ap:  0.7311717479746895
@@ -125,14 +128,16 @@ train ap:  0.7304618425853895
 tvmonitor ap:  0.5983913977616169
 mAP:  0.6198638263857212
 ```
-GPU inference time (Python+MX150): 78ms <br>
-CPU inference time (Python+i7-8550U): 112ms <br>
+GPU inference time (GTX1080Ti): 19ms <br>
+CPU inference time (i7-8550U): 112ms <br>
 Model size: 37M <br>
 <br>
 Network: Efficientnet+Yolov3 <br>
 Input size: 380*380 <br>
-Dataset: VOC2007 <br>
+Train Dataset: VOC2007 <br>
+Test Dataset: VOC2007 <br>
 mAP: <br>
+
 ```
 aeroplane ap:  0.6492260838166934
 bicycle ap:  0.8010712280076165
@@ -156,8 +161,41 @@ train ap:  0.7734685594308568
 tvmonitor ap:  0.6505409659737674
 mAP:  0.6744199190428132
 ```
-GPU inference time (Python+MX150): 105ms <br>
-CPU inference time (Python+i7-8550U): 168ms <br>
+GPU inference time (GTX1080Ti): 23ms <br>
+CPU inference time (i7-8550U): 168ms <br>
+Model size: 77M <br>
+<br>
+Network: Efficientnet+Yolov3 <br>
+Input size: 380*380 <br>
+Train Dataset: VOC2007+VOC2012 <br>
+Test Dataset: VOC2007 <br>
+mAP: <br>
+
+```
+aeroplane ap:  0.8186380791530123
+bicycle ap:  0.778370501901752
+bird ap:  0.8040658409051149
+boat ap:  0.6606796907615438
+bottle ap:  0.5338128542328597
+bus ap:  0.8516086793836817
+car ap:  0.8247881435224634
+cat ap:  0.9271784386863242
+chair ap:  0.5344565229671414
+cow ap:  0.7724057669182698
+diningtable ap:  0.701598520527006
+dog ap:  0.9052246177009002
+horse ap:  0.8477206181813397
+motorbike ap:  0.8275932123398402
+person ap:  0.7605203479510053
+pottedplant ap:  0.45979410517062475
+sheep ap:  0.8301611044152797
+sofa ap:  0.7393617389123919
+train ap:  0.8817430073959469
+tvmonitor ap:  0.6981047903116634
+mAP:  0.757891329066908
+```
+GPU inference time (GTX1080Ti): 23ms <br>
+CPU inference time (i7-8550U): 168ms <br>
 Model size: 77M <br>
 
 ---
