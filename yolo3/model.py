@@ -597,8 +597,8 @@ if tf.version.VERSION.startswith('1.'):
             grid_shape = tf.cast(tf.shape(yolo_output)[1:3], y_true.dtype)
             raw_true_xy = y_true[..., :2] * grid_shape[::-1] - grid
             raw_true_wh = tf.math.log(y_true[..., 2:4] /
-                                      anchors[anchor_mask[idx]] *
-                                      input_shape[::-1])
+                                      tf.cast(anchors[anchor_mask[idx]], y_true.dtype)*
+                                      tf.cast(input_shape[::-1], y_true.dtype) )
             raw_true_wh = tf.keras.backend.switch(object_mask, raw_true_wh,
                                                   tf.zeros_like(raw_true_wh))
             box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]
