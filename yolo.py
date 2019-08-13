@@ -148,10 +148,10 @@ class YOLO(object):
             image_data = tf.expand_dims(image, 0)
             if self.input_shape != (None, None):
                 boxed_image, image_shape = letterbox_image(
-                    image_data, tuple(reversed(self.input_shape)))
+                    image_data, tuple(self.input_shape))
             else:
                 height, width, _ = image_data.shape
-                new_image_size = (width - (width % 32), height - (height % 32))
+                new_image_size = (height - (height % 32), width - (width % 32))
                 boxed_image, image_shape = letterbox_image(
                     image_data, new_image_size)
             image_data = np.array(boxed_image)

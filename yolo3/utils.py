@@ -125,20 +125,21 @@ def get_random_data(image,
                                  tf.cast(nw, tf.int32)])
 
         def crop_and_pad(image, dx, dy):
-            dy = tf.cast(tf.math.maximum(-dy, 0), tf.int32)
-            dx = tf.cast(tf.math.maximum(-dx, 0), tf.int32)
+            dy_t = tf.cast(tf.math.maximum(-dy, 0), tf.int32)
+            dx_t = tf.cast(tf.math.maximum(-dx, 0), tf.int32)
             image = tf.image.crop_to_bounding_box(
-                image, dy, dx,
+                image, dy_t, dx_t,
                 tf.math.minimum(tf.cast(h, tf.int32), tf.cast(nh, tf.int32)),
                 tf.math.minimum(tf.cast(w, tf.int32), tf.cast(nw, tf.int32)))
-            image = tf.image.pad_to_bounding_box(image, 0, 0,
+            image = tf.image.pad_to_bounding_box(image, 
+                                                 tf.cast(tf.math.maximum(dy,0), tf.int32), tf.cast(tf.math.maximum(dx,0), tf.int32),
                                                  tf.cast(h, tf.int32),
                                                  tf.cast(w, tf.int32))
             return image
 
         new_image = tf.cond(
-            tf.greater(scale,
-                       1), lambda: crop_and_pad(image, dx, dy), lambda: tf.image
+            tf.logical_or(nw>w, nh>h),
+            lambda: crop_and_pad(image, dx, dy), lambda: tf.image
             .pad_to_bounding_box(image, tf.cast(tf.math.maximum(
                 dy, 0), tf.int32), tf.cast(tf.math.maximum(dx, 0), tf.int32),
                                  tf.cast(h, tf.int32), tf.cast(w, tf.int32)))
@@ -171,7 +172,7 @@ def get_random_data(image,
                                                  max_jpeg_quality)
         if noise > 0:
             image = image + tf.cast(
-                tf.random.uniform(shape=[input_shape[1], input_shape[0], 3],
+                tf.random.uniform(shape=[input_shape[0], input_shape[1], 3],
                                   minval=0,
                                   maxval=noise), tf.float32)
         if blur:
