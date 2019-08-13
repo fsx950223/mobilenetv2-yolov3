@@ -92,10 +92,10 @@ class MAPCallback(tf.keras.callbacks.Callback):
         for image, bbox in test_dataset:
             if self.input_shape != (None, None):
                 boxed_image, resized_image_shape = letterbox_image(
-                    image, tuple(reversed(self.input_shape)))
+                    image, tuple(self.input_shape))
             else:
                 _, height, width, _ = tf.shape(image)
-                new_image_size = (width - (width % 32), height - (height % 32))
+                new_image_size = (height - (height % 32), width - (width % 32))
                 boxed_image, resized_image_shape = letterbox_image(
                     image, new_image_size)
             output = self.model.predict(boxed_image.numpy())
