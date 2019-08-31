@@ -149,7 +149,7 @@ class Dataset:
                 'Please format file name like <name>_<number>.<extension>')
         else:
             tfrecords = list(
-                filter(lambda file: file.endswith('.tfrecords'), files))
+                filter(lambda file: file.endswith('.tfrecords') or file.endswith('.tfrecord'), files))
             txts = list(filter(lambda file: file.endswith('.txt'), files))
             if len(tfrecords) > 0:
                 tfrecords_dataset = self._dataset_internal(
