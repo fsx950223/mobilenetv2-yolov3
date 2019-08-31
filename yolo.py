@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageFont, ImageDraw
 import cv2
 import tensorflow as tf
-from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body, efficientnet_yolo_body, YoloEval
+from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body, efficientnet_yolo_body, YoloEval, mobilenetv2_yolo_body_r13
 from yolo3.utils import letterbox_image, get_anchors, get_classes
 from yolo3.enum import OPT, BACKBONE
 from yolo3.map import MAPCallback
@@ -79,6 +79,9 @@ class YOLO(object):
             if self.backbone == BACKBONE.MOBILENETV2:
                 model_body = partial(mobilenetv2_yolo_body,
                                      alpha=FLAGS['alpha'])
+            elif self.backbone == BACKBONE.MOBILENETV2_R13:
+                model_body = partial(mobilenetv2_yolo_body_r13,
+                                     alpha=FLAGS['alpha'])                                     
             elif self.backbone == BACKBONE.DARKNET53:
                 model_body = darknet_yolo_body
             elif self.backbone == BACKBONE.EFFICIENTNET:

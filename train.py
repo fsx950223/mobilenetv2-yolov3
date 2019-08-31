@@ -4,7 +4,7 @@ Retrain the YOLO model for your own dataset.
 import tensorflow as tf
 import datetime
 import zipfile
-from yolo3.model import darknet_yolo_body, YoloLoss, mobilenetv2_yolo_body, efficientnet_yolo_body
+from yolo3.model import darknet_yolo_body, YoloLoss, mobilenetv2_yolo_body, efficientnet_yolo_body, mobilenetv2_yolo_body_r13
 from yolo3.data import Dataset
 from yolo3.enum import OPT, BACKBONE, DATASET_MODE
 from yolo3.map import MAPCallback
@@ -115,6 +115,12 @@ def train(FLAGS):
                                   len(anchors) // 3,
                                   num_classes,
                                   alpha=FLAGS['alpha'])
+        elif backbone == BACKBONE.MOBILENETV2_R13:
+            model = factory.build(mobilenetv2_yolo_body_r13,
+                                  155,
+                                  len(anchors) // 3,
+                                  num_classes,
+                                  alpha=FLAGS['alpha'])                                  
         elif backbone == BACKBONE.DARKNET53:
             model = factory.build(darknet_yolo_body, 185,
                                   len(anchors) // 3, num_classes)

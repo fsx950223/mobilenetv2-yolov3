@@ -1,5 +1,6 @@
 """YOLO_v3 Model Defined in Keras."""
 
+from functools import wraps
 from yolo3.enum import BOX_LOSS
 import numpy as np
 import tensorflow as tf
@@ -177,6 +178,64 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
     ])
     x, y3 = make_last_layers_mobilenet(x, 25, 128,
                                        num_anchors * (num_classes + 5))
+    y1 = tf.keras.layers.Lambda(lambda y: tf.reshape(y, [
+        -1, tf.shape(y)[1],
+        tf.shape(y)[2], num_anchors, num_classes + 5
+    ]),
+                                name='y1')(y1)
+    y2 = tf.keras.layers.Lambda(lambda y: tf.reshape(y, [
+        -1, tf.shape(y)[1],
+        tf.shape(y)[2], num_anchors, num_classes + 5
+    ]),
+                                name='y2')(y2)
+    y3 = tf.keras.layers.Lambda(lambda y: tf.reshape(y, [
+        -1, tf.shape(y)[1],
+        tf.shape(y)[2], num_anchors, num_classes + 5
+    ]),
+                                name='y3')(y3)
+    return tf.keras.models.Model(inputs, [y1, y2, y3])
+
+
+# the mobkenetv2-yolo model befroe r1.14
+@wraps(tf.keras.layers.Conv2D)
+def DarknetConv2D(*args, **kwargs):
+    """Wrapper to set Darknet parameters for Convolution2D."""
+    darknet_conv_kwargs = {'kernel_regularizer': tf.keras.regularizers.l2(5e-4)}
+    darknet_conv_kwargs['padding'] = 'valid' if kwargs.get('strides') == (2, 2) else 'same'
+    darknet_conv_kwargs.update(kwargs)
+    return tf.keras.layers.Conv2D(*args, **darknet_conv_kwargs)
+
+
+def MobilenetConv2D_BN_Relu(kernel,alpha, filters):
+    last_block_filters = _make_divisible(filters * alpha, 8)
+    return compose(tf.keras.layers.Conv2D(last_block_filters,
+                                          kernel,
+                                          use_bias=False),
+                   tf.keras.layers.BatchNormalization(epsilon=1e-3, momentum=0.999),
+                   tf.keras.layers.ReLU(6.))
+
+
+def mobilenetv2_yolo_body_r13(inputs, num_anchors, num_classes, alpha=1.0):
+    mobilenetv2 = tf.keras.applications.MobileNetV2(alpha=alpha, input_tensor=inputs, include_top=False,
+                                                    weights='imagenet')
+    x=mobilenetv2.output
+    y1 = MobilenetConv2D_BN_Relu((1,1),alpha, 1280)(x)
+    y1 = tf.keras.layers.Conv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y1)
+    x = compose(
+        MobilenetConv2D_BN_Relu((1,1),alpha, 640),
+        tf.keras.layers.UpSampling2D(2))(x)
+    x = tf.keras.layers.Concatenate()(
+        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 640)(mobilenetv2.get_layer('block_12_project_BN').output)])
+    y2 = MobilenetConv2D_BN_Relu((1,1),alpha, 640)(x)
+    y2 = tf.keras.layers.Conv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y2)
+    x = compose(
+        MobilenetConv2D_BN_Relu((1,1),alpha, 320),
+        tf.keras.layers.UpSampling2D(2))(x)
+    x = tf.keras.layers.Concatenate()(
+        [x, MobilenetConv2D_BN_Relu((1,1),alpha, 320)(mobilenetv2.get_layer('block_5_project_BN').output)])
+    y3 = MobilenetConv2D_BN_Relu((1,1),alpha, 320)(x)
+    y3 = tf.keras.layers.Conv2D(num_anchors * (num_classes + 5), (1, 1),padding='same')(y3)
+    # reshape to make compatible with r1.14
     y1 = tf.keras.layers.Lambda(lambda y: tf.reshape(y, [
         -1, tf.shape(y)[1],
         tf.shape(y)[2], num_anchors, num_classes + 5
