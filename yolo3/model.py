@@ -1,6 +1,5 @@
 """YOLO_v3 Model Defined in Keras."""
 
-from functools import wraps
 from yolo3.enum import BOX_LOSS
 import numpy as np
 import tensorflow as tf
