@@ -76,7 +76,7 @@ def train(FLAGS):
     batch_size = batch_size * strategy.num_replicas_in_sync
     with strategy.scope():
         factory = ModelFactory(weights_path=model_path)
-        if backbone == BACKBONE.MOBILENETV2:
+        if backbone == BACKBONE.MOBILENETV2 or backbone == BACKBONE.MOBILENETV2_R13:
             model = factory.build(mobilenetv2,
                                   0,
                                   alpha=1.4,

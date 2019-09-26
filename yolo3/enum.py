@@ -26,6 +26,7 @@ class BACKBONE(Enum):
     MOBILENETV2 = 0
     EFFICIENTNET = 1
     DARKNET53 = 2
+    MOBILENETV2_R13 = 3
 
 
 @unique
