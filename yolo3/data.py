@@ -88,14 +88,14 @@ class Dataset:
                 cycle_length=len(files),
                 num_parallel_calls=AUTOTUNE).shuffle(train_num).map(
                     parser, num_parallel_calls=AUTOTUNE).prefetch(
-                        self.batch_size).batch(self.batch_size).repeat()
+                        self.batch_size).batch(self.batch_size)
         elif self.mode == DATASET_MODE.VALIDATE:
             dataset = dataset.interleave(
                 lambda file: dataset_builder(file),
                 cycle_length=len(files),
                 num_parallel_calls=AUTOTUNE).map(
                     parser, num_parallel_calls=AUTOTUNE).prefetch(
-                        self.batch_size).batch(self.batch_size).repeat()
+                        self.batch_size).batch(self.batch_size)
         elif self.mode == DATASET_MODE.TEST:
             dataset = dataset.interleave(
                 lambda file: dataset_builder(file),

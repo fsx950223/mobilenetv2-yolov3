@@ -51,11 +51,10 @@ class AdvLossModel(tf.keras.Model):
         return loss
 
     @tf.function
-    def _distributed_epoch(self, iterator, step, num):
+    def _distributed_epoch(self, dataset, step, num):
         total_loss = 0.0
         num_batches = 0.0
-        for i in tf.range(num):
-            batch = next(iterator)
+        for batch in dataset:
             if self.writer is not None:
                 with self.writer.as_default():
                     tf.summary.image(
@@ -63,7 +62,7 @@ class AdvLossModel(tf.keras.Model):
                         tf.cast(batch[0] * 255, tf.uint8),
                         max_outputs=8)
             per_replica_loss = self._distribution_strategy.experimental_run_v2(
-                step, args=(batch,))
+                self._train_step if step else self._val_step, args=(batch,))
             total_loss += self._distribution_strategy.reduce(
                 tf.distribute.ReduceOp.SUM, per_replica_loss,
                 axis=None)
@@ -102,9 +101,9 @@ class AdvLossModel(tf.keras.Model):
             for callback in callbacks:
                 callback.on_epoch_begin(epoch, logs)
             train_loss = self._distributed_epoch(
-                iter(train_dataset), self._train_step, train_num)
+                train_dataset, True, tf.constant(train_num))
             val_loss = self._distributed_epoch(
-                iter(val_dataset), self._val_step, val_num)
+                val_dataset, False, tf.constant(val_num))
             logs['loss'] = train_loss
             logs['val_loss'] = val_loss
             for callback in callbacks:
