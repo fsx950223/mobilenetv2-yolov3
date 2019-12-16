@@ -8,6 +8,7 @@ from yolo3.utils import compose
 from yolo3.override import mobilenet_v2
 from yolo3.darknet import DarknetConv2D_BN_Leaky, DarknetConv2D, darknet_body
 from yolo3.efficientnet import EfficientNetB4, MBConvBlock, get_model_params, BlockArgs
+from yolo3.train import AdvLossModel
 
 
 def make_last_layers(x, num_filters, out_filters):
@@ -39,16 +40,28 @@ def darknet_yolo_body(inputs, num_anchors, num_classes):
                 tf.keras.layers.UpSampling2D(2))(x)
     x = tf.keras.layers.Concatenate()([x, darknet.layers[92].output])
     x, y3 = make_last_layers(x, 128, num_anchors * (num_classes + 5))
-    y1 = tf.keras.layers.Reshape(
-        (tf.shape(y1)[1], tf.shape(y1)[2], num_anchors, num_classes + 5),
+    y1 = tf.keras.layers.Lambda(
+        lambda y: tf.reshape(y, [
+            -1,
+            tf.shape(y)[1],
+            tf.shape(y)[2], num_anchors, num_classes + 5
+        ]),
         name='y1')(y1)
-    y2 = tf.keras.layers.Reshape(
-        (tf.shape(y2)[1], tf.shape(y2)[2], num_anchors, num_classes + 5),
+    y2 = tf.keras.layers.Lambda(
+        lambda y: tf.reshape(y, [
+            -1,
+            tf.shape(y)[1],
+            tf.shape(y)[2], num_anchors, num_classes + 5
+        ]),
         name='y2')(y2)
-    y3 = tf.keras.layers.Reshape(
-        (tf.shape(y3)[1], tf.shape(y3)[2], num_anchors, num_classes + 5),
+    y3 = tf.keras.layers.Lambda(
+        lambda y: tf.reshape(y, [
+            -1,
+            tf.shape(y)[1],
+            tf.shape(y)[2], num_anchors, num_classes + 5
+        ]),
         name='y3')(y3)
-    return tf.keras.models.Model(inputs, [y1, y2, y3])
+    return AdvLossModel(inputs, [y1, y2, y3])
 
 
 def MobilenetSeparableConv2D(filters,
@@ -192,7 +205,7 @@ def mobilenetv2_yolo_body(inputs, num_anchors, num_classes, alpha=1.0):
         tf.shape(y)[2], num_anchors, num_classes + 5
     ]),
                                 name='y3')(y3)
-    return tf.keras.models.Model(inputs, [y1, y2, y3])
+    return AdvLossModel(mobilenetv2.inputs, [y1, y2, y3])
 
 
 def make_last_layers_efficientnet(x, block_args, global_params):
@@ -303,7 +316,8 @@ def efficientnet_yolo_body(inputs, model_name, num_anchors, **kwargs):
         (y2.shape[1], y2.shape[2], num_anchors, num_classes + 5), name='y2')(y2)
     y3 = tf.keras.layers.Reshape(
         (y3.shape[1], y3.shape[2], num_anchors, num_classes + 5), name='y3')(y3)
-    return tf.keras.models.Model(efficientnet.input, [y1, y2, y3])
+
+    return AdvLossModel(efficientnet.inputs, [y1, y2, y3])
 
 
 def yolo_head(feats: tf.Tensor,
@@ -617,11 +631,11 @@ else:
     class YoloLoss(tf.keras.losses.Loss):
 
         def __init__(self,
-                     idx,
-                     anchors,
-                     ignore_thresh=.5,
-                     box_loss=BOX_LOSS.GIOU,
-                     print_loss=True):
+                        idx,
+                        anchors,
+                        ignore_thresh=.5,
+                        box_loss=BOX_LOSS.GIOU,
+                        print_loss=True):
             super(YoloLoss, self).__init__(reduction=tf.losses.Reduction.NONE,name='yolo_loss')
             grid_steps = [32, 16, 8]
             anchor_masks = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
@@ -633,16 +647,29 @@ else:
             self.anchor = anchors[anchor_masks[idx]]
 
         def call(self, y_true, yolo_output):
+            '''Return yolo_loss tensor
+
+            Parameters
+            ----------
+            yolo_output: the output of yolo_body
+            y_true: the output of preprocess_true_boxes
+            anchors: array, shape=(N, 2), wh
+            num_classes: integer
+            ignore_thresh: float, the iou threshold whether to ignore object confidence loss
+
+            Returns
+            -------
+            loss: tensor, shape=(1,)
+
+            '''
             loss = 0
             m = tf.shape(yolo_output)[0]  # batch size, tensor
             mf = tf.cast(m, yolo_output.dtype)
             object_mask = y_true[..., 4:5]
             true_class_probs = y_true[..., 5:]
             input_shape = tf.shape(yolo_output)[1:3] * self.grid_step
-            grid, pred_xy, pred_wh, box_confidence = yolo_head(yolo_output,
-                                                               self.anchor,
-                                                               input_shape,
-                                                               calc_loss=True)
+            grid, pred_xy, pred_wh, box_confidence = yolo_head(
+                yolo_output, self.anchor, input_shape, calc_loss=True)
             pred_box = tf.concat([pred_xy, pred_wh], -1)
             # Find ignore mask, iterate over each of batch.
             object_mask_bool = tf.cast(object_mask, 'bool')
@@ -654,10 +681,10 @@ else:
 
             ignore_mask = tf.expand_dims(ignore_mask, -1)
             confidence_loss = (object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
-                                                                                     logits=yolo_output[..., 4:5]) + \
-                               (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
-                                                                                           logits=yolo_output[...,
-                                                                                                  4:5]) * ignore_mask)
+                                                                                    logits=yolo_output[..., 4:5]) + \
+                            (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
+                                                                                        logits=yolo_output[...,
+                                                                                                4:5]) * ignore_mask)
             class_loss = object_mask * tf.nn.sigmoid_cross_entropy_with_logits(
                 labels=true_class_probs, logits=yolo_output[..., 5:])
             confidence_loss = tf.reduce_sum(confidence_loss) / mf
@@ -669,16 +696,15 @@ else:
                 giou_loss = tf.reduce_sum(giou_loss) / mf
                 loss += giou_loss + confidence_loss + class_loss
                 if self.print_loss:
-                    tf.print(
-                        str(self.idx) + ':', giou_loss, confidence_loss, class_loss,
-                        tf.reduce_sum(ignore_mask))
+                    tf.print(str(self.idx)+':',giou_loss, confidence_loss, class_loss,tf.reduce_sum(ignore_mask))
             elif self.box_loss == BOX_LOSS.MSE:
                 grid_shape = tf.cast(tf.shape(yolo_output)[1:3], y_true.dtype)
                 raw_true_xy = y_true[..., :2] * grid_shape[::-1] - grid
-                raw_true_wh = tf.math.log(y_true[..., 2:4] / self.anchor *
-                                          input_shape[::-1])
+                raw_true_wh = tf.math.log(y_true[..., 2:4] /
+                                        tf.cast(self.anchor, y_true.dtype)*
+                                        tf.cast(input_shape[::-1], y_true.dtype) )
                 raw_true_wh = tf.keras.backend.switch(object_mask, raw_true_wh,
-                                                      tf.zeros_like(raw_true_wh))
+                                                    tf.zeros_like(raw_true_wh))
                 box_loss_scale = 2 - y_true[..., 2:3] * y_true[..., 3:4]
                 xy_loss = object_mask * box_loss_scale * tf.nn.sigmoid_cross_entropy_with_logits(
                     labels=raw_true_xy, logits=yolo_output[..., 0:2])
@@ -687,7 +713,7 @@ else:
                 xy_loss = tf.reduce_sum(xy_loss) / mf
                 wh_loss = tf.reduce_sum(wh_loss) / mf
                 loss += xy_loss + wh_loss + confidence_loss + class_loss
-                if self.print_loss:
+                if print_loss:
                     tf.print(loss, xy_loss, wh_loss, confidence_loss, class_loss,
-                             tf.reduce_sum(ignore_mask))
+                            tf.reduce_sum(ignore_mask))
             return loss
