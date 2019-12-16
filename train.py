@@ -3,7 +3,6 @@ Retrain the YOLO model for your own dataset.
 """
 import tensorflow as tf
 import datetime
-import zipfile
 from yolo3.model import darknet_yolo_body, YoloLoss, mobilenetv2_yolo_body, efficientnet_yolo_body
 from yolo3.data import Dataset
 from yolo3.enum import OPT, BACKBONE, DATASET_MODE
@@ -11,6 +10,7 @@ from yolo3.map import MAPCallback
 from yolo3.utils import get_anchors, get_classes, ModelFactory
 import os
 import numpy as np
+import neural_structured_learning as nsl
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -23,19 +23,16 @@ def train(FLAGS):
     prune = FLAGS['prune']
     opt = FLAGS['opt']
     backbone = FLAGS['backbone']
-    log_dir = FLAGS['log_directory'] or os.path.join(
+    log_dir = os.path.join(
         'logs',
-        str(backbone).split('.')[1].lower() + str(datetime.date.today()))
-    if tf.io.gfile.exists(log_dir) is not True:
-        tf.io.gfile.mkdir(log_dir)
+        str(backbone).split('.')[1].lower() + '_' + str(datetime.date.today()))
+
     batch_size = FLAGS['batch_size']
     train_dataset_glob = FLAGS['train_dataset']
     val_dataset_glob = FLAGS['val_dataset']
     test_dataset_glob = FLAGS['test_dataset']
     freeze = FLAGS['freeze']
-    freeze_step = FLAGS['epochs'][0]
-    train_step = FLAGS['epochs'][1]
-
+    epochs = FLAGS['epochs'][0] if freeze else FLAGS['epochs'][1]
     if opt == OPT.DEBUG:
         tf.config.experimental_run_functions_eagerly(True)
         tf.debugging.set_log_device_placement(True)
@@ -67,17 +64,17 @@ def train(FLAGS):
 
     train_dataset_builder = Dataset(train_dataset_glob, batch_size, anchors,
                                      num_classes, input_shape)
-    train_dataset, train_num = train_dataset_builder.build()
+    train_dataset, train_num = train_dataset_builder.build(epochs)
     val_dataset_builder = Dataset(val_dataset_glob,
                                   batch_size,
                                   anchors,
                                   num_classes,
                                   input_shape,
                                   mode=DATASET_MODE.VALIDATE)
-    val_dataset, val_num = val_dataset_builder.build()
+    val_dataset, val_num = val_dataset_builder.build(epochs)
     map_callback = MAPCallback(test_dataset_glob, input_shape, anchors,
                                class_names)
-    logging = tf.keras.callbacks.TensorBoard(write_graph=False,
+    tensorboard = tf.keras.callbacks.TensorBoard(write_graph=False,
                                              log_dir=log_dir,
                                              write_images=True)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(os.path.join(
@@ -87,12 +84,12 @@ def train(FLAGS):
                                                     save_best_only=True,
                                                     period=3)
     cos_lr = tf.keras.callbacks.LearningRateScheduler(
-        lambda epoch, _: tf.keras.experimental.CosineDecay(lr[1], train_step)(
-            epoch - freeze_step).numpy(),1)
+        lambda epoch, _: tf.keras.experimental.CosineDecay(lr[1], epochs)(
+            epoch).numpy(),1)
     early_stopping = tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
         min_delta=0,
-        patience=(freeze_step + train_step) // 10,
+        patience=epochs // 5,
         verbose=1)
     if tf.version.VERSION.startswith('1.'):
         loss = [
@@ -105,6 +102,11 @@ def train(FLAGS):
         ]
     else:
         loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(len(anchors) // 3)]
+
+    adv_config = nsl.configs.make_adv_reg_config(
+        multiplier=0.2, adv_step_size=0.2, adv_grad_norm='infinity')
+    train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+    val_dataset = strategy.experimental_distribute_dataset(val_dataset)
 
     with strategy.scope():
         factory = ModelFactory(tf.keras.layers.Input(shape=(*input_shape, 3)),
@@ -129,50 +131,6 @@ def train(FLAGS):
                                   drop_connect_rate=0.2,
                                   data_format="channels_first")
 
-    if prune:
-        from tensorflow_model_optimization.python.core.api.sparsity import keras as sparsity
-        end_step = np.ceil(1.0 * train_num / batch_size).astype(
-            np.int32) * train_step
-        new_pruning_params = {
-            'pruning_schedule':
-            sparsity.PolynomialDecay(initial_sparsity=0.5,
-                                     final_sparsity=0.9,
-                                     begin_step=0,
-                                     end_step=end_step,
-                                     frequency=1000)
-        }
-        pruned_model = sparsity.prune_low_magnitude(model, **new_pruning_params)
-        pruned_model.compile(optimizer=tf.keras.optimizers.Adam(lr[0],
-                                                                epsilon=1e-8),
-                             loss=loss)
-        pruned_model.fit(train_dataset,
-                         epochs=train_step,
-                         initial_epoch=0,
-                         steps_per_epoch=max(1, train_num // batch_size),
-                         callbacks=[
-                             checkpoint, cos_lr, logging, map_callback, early_stopping
-                         ],
-                         validation_data=val_dataset,
-                         validation_steps=max(1, val_num // batch_size))
-        model = sparsity.strip_pruning(pruned_model)
-        model.save_weights(
-            os.path.join(
-                log_dir,
-                str(backbone).split('.')[1].lower() +
-                '_trained_weights_pruned.h5'))
-        with zipfile.ZipFile(os.path.join(
-                log_dir,
-                str(backbone).split('.')[1].lower() +
-                '_trained_weights_pruned.h5.zip'),
-                             'w',
-                             compression=zipfile.ZIP_DEFLATED) as f:
-            f.write(
-                os.path.join(
-                    log_dir,
-                    str(backbone).split('.')[1].lower() +
-                    '_trained_weights_pruned.h5'))
-        return
-
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
     if freeze is True:
@@ -180,13 +138,8 @@ def train(FLAGS):
             model.compile(optimizer=tf.keras.optimizers.Adam(lr[0],
                                                              epsilon=1e-8),
                           loss=loss)
-        model.fit(train_dataset,
-                  epochs=freeze_step,
-                  initial_epoch=0,
-                  steps_per_epoch=max(1, train_num // batch_size),
-                  callbacks=[logging, checkpoint],
-                  validation_data=val_dataset,
-                  validation_steps=max(1, val_num // batch_size))
+        model.fit(epochs, [checkpoint, tensorboard], train_dataset,train_num//batch_size,
+            val_dataset,val_num//batch_size)
         model.save_weights(
             os.path.join(
                 log_dir,
@@ -202,15 +155,8 @@ def train(FLAGS):
                                                              epsilon=1e-8),
                           loss=loss)  # recompile to apply the change
         print('Unfreeze all of the layers.')
-        model.fit(train_dataset,
-                  epochs=train_step + freeze_step,
-                  initial_epoch=freeze_step,
-                  steps_per_epoch=max(1, train_num // batch_size),
-                  callbacks=[
-                      checkpoint,cos_lr, logging, map_callback, early_stopping
-                  ],
-                  validation_data=val_dataset,
-                  validation_steps=max(1, val_num // batch_size))
+        model.fit(epochs, [checkpoint, cos_lr, tensorboard, early_stopping], train_dataset,train_num//batch_size,
+                      val_dataset,val_num//batch_size,use_adv=False)
         model.save_weights(
             os.path.join(
                 log_dir,
