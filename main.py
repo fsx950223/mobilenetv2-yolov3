@@ -1,11 +1,8 @@
-from absl import app, flags
+from absl import app, flags, logging
 import tensorflow as tf
-if tf.version.VERSION.startswith('1.'):
-    tf.enable_eager_execution()
-if tf.version.VERSION.startswith('1.'):
-    tf.enable_v2_behavior()
-if tf.version.VERSION.startswith('1.'):
-    tf.enable_v2_tensorshape()
+tf.compat.v1.enable_eager_execution()
+tf.compat.v1.enable_v2_behavior()
+tf.compat.v1.enable_v2_tensorshape()
 from yolo3.enum import BACKBONE, MODE, OPT
 from train import train
 from train_backbone import train as train_backbone
@@ -38,7 +35,7 @@ flags.DEFINE_multi_integer('input_size',
 flags.DEFINE_string('log_directory', default=None, help="Log directory")
 flags.DEFINE_string(
     'model',
-    default='../download/mobilenetv2_trained_weights_final (1).h5',
+    default=None,
     help="Model path")
 flags.DEFINE_enum_class(
     'mode',
@@ -48,15 +45,15 @@ flags.DEFINE_enum_class(
     "Select exec mode, One of {'TRAIN','TRAIN_BACKBONE','IMAGE','VIDEO','TFLITE','SERVING','MAP','PRUNE'}"
 )
 
-flags.DEFINE_multi_integer('gpus', default=[0], help="Specific gpu indexes to run")
+flags.DEFINE_multi_integer('gpus', default=[0,1], help="Specific gpu indexes to run")
 flags.DEFINE_string('train_dataset',
-                    default='../pascal/VOCdevkit/train/*2007*.tfrecords',
+                    default='/usr/local/srv/tfrecords/train/*2007*.tfrecords',
                     help="Dataset glob for train")
 flags.DEFINE_string('val_dataset',
-                    default='../pascal/VOCdevkit/val/*2007*.tfrecords',
+                    default='/usr/local/srv/tfrecords/val/*2007*.tfrecords',
                     help="Dataset glob for validate")
 flags.DEFINE_string('test_dataset',
-                    default='../pascal/VOCdevkit/test/*2007*.tfrecords',
+                    default='/usr/local/srv/tfrecords/test/*2007*.tfrecords',
                     help="Dataset glob for test")
 flags.DEFINE_string('anchors_path',
                     default='model_data/yolo_anchors.txt',
@@ -83,12 +80,8 @@ def parse_tuple(val):
         return tuple([int(num) for num in val[1:-1].split(',')])
     return tuple(val)
 
-
 def log(msg):
-    if tf.version.VERSION.startswith('1.'):
-        tf.logging.info(msg)
-    else:
-        print(msg)
+    logging.info(msg)
 
 def get_gpu_name(valid_gpus):
     return [':'.join(gpu.name.split(':')[1:]) for gpu in valid_gpus]
@@ -162,6 +155,5 @@ def main(_):
 
 
 if __name__ == '__main__':
-    if tf.version.VERSION.startswith('1.'):
-        tf.logging.set_verbosity(tf.logging.INFO)
+    logging.set_verbosity(tf.logging.INFO)
     app.run(main)
