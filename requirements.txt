@@ -7,7 +7,7 @@ tensorflow_estimator==1.14.0rc1
 tensorflow_serving_api==1.13.0
 tensorflow_datasets==1.0.2
 six==1.11.0
-tensorflow_gpu==1.14.0
+tensorflow_gpu==1.15.0
 opencv_contrib_python==4.1.0.25
 tensorflow_model_optimization==0.1.1
 grpcio==1.16.1
