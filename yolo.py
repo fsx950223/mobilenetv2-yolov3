@@ -103,6 +103,7 @@ class YOLO(object):
                 input_image = tf.map_fn(
                     lambda image: tf.image.convert_image_dtype(
                         image, tf.float32), input, tf.float32)
+                input_image = tf.image.per_image_standardization(input_image)
                 image, shape = letterbox_image(input_image, self.input_shape)
                 self.input_image_shape = tf.shape(input_image)[1:3]
                 image = tf.reshape(image, [-1, *self.input_shape, 3])
@@ -286,6 +287,7 @@ def inference_img(image_path):
             image = tf.image.decode_image(content,
                                             channels=3,
                                             dtype=tf.float32)
+            image = tf.image.per_image_standardization(image)
         else:
             image = Image.open(image_path)
     except:
