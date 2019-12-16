@@ -15,10 +15,13 @@ Callback:
 Loss:
 - [x] MSE
 - [x] GIOU
+- [x] Adversarial loss
 
 Train:
 - [x] Multi scale image size
 - [x] Cosine learning rate
+- [x] Auto augment
+- [x] Image standardization
 
 Tensorflow:
 - [x] Tensorflow2 Ready
@@ -28,6 +31,7 @@ Tensorflow:
 - [ ] Convert model to tensorflow lite model
 - [x] Multi GPU training
 - [ ] TPU support
+- [x] TensorRT support
 
 Serving:
 - [x] Tensorflow Serving warm up request
@@ -35,6 +39,7 @@ Serving:
 - [x] Tensorflow Serving Python Client
 - [x] Tensorflow Serving Service Control Client
 - [ ] Tensorflow Serving Server Build and Plugins develop 
+
 ---
 
 # Usage
@@ -68,17 +73,24 @@ Example: <br>
 3. Run: <br>
 
 ``` bash
-python main.py --mode=TRAIN --train_dataset_glob=<your dataset glob>
+python main.py --mode=TRAIN --train_dataset_glob=<your dataset glob> --epochs=50 --epochs=50 --mode=TRAIN
 ```
 
 ### Predict:
 ``` bash
 python main.py --mode=IMAGE --model=<your_model_path>
 ```
+
+### MAP:
+``` bash
+python main.py --mode=MAP --model=<your_model_path> --test_dataset_glob=<your dataset glob>
+```
+
 ### Export serving model:
 ``` bash
 python main.py --mode=SERVING --model=<your_model_path>
 ```
+
 ### Use custom config file:
 ``` bash
 python main.py --config=mobilenetv2.yaml
@@ -106,27 +118,27 @@ Test Dataset: VOC2007 <br>
 mAP: <br>
 
 ```
-aeroplane ap:  0.585270123970341
-bicycle ap:  0.7311717479746895
-bird ap:  0.6228634475289679
-boat ap:  0.44729361226611786
-bottle ap:  0.3524265151288485
-bus ap:  0.7260233058709467
-car ap:  0.7572503412774444
-cat ap:  0.8443930169586521
-chair ap:  0.3530240979604032
-cow ap:  0.5680746465428056
-diningtable ap:  0.6046673143934721
-dog ap:  0.8096497542858805
-horse ap:  0.785358647511358
-motorbike ap:  0.7299038925396009
-person ap:  0.6926967393665762
-pottedplant ap:  0.2960290730045794
-sheep ap:  0.5569735405574012
-sofa ap:  0.6053534702293342
-train ap:  0.7304618425853895
-tvmonitor ap:  0.5983913977616169
-mAP:  0.6198638263857212
+aeroplane ap:  0.6721874861775297
+bicycle ap:  0.7844226664948993
+bird ap:  0.6863393529648882
+boat ap:  0.5102715372530052
+bottle ap:  0.4098093697072679
+bus ap:  0.7646277543282962
+car ap:  0.8000339732789448
+cat ap:  0.8681120849855787
+chair ap:  0.4021823009684314
+cow ap:  0.6768311030872428
+diningtable ap:  0.626045232887253
+dog ap:  0.8293983813984888
+horse ap:  0.8315961581768014
+motorbike ap:  0.771283337747543
+person ap:  0.7298645793931624
+pottedplant ap:  0.3081565644702266
+sheep ap:  0.6510012751038824
+sofa ap:  0.6442699680945367
+train ap:  0.8025086962000969
+tvmonitor ap:  0.6239227675451299
+mAP:  0.6696432295131602
 ```
 GPU inference time (GTX1080Ti): 19ms <br>
 CPU inference time (i7-8550U): 112ms <br>
@@ -139,27 +151,27 @@ Test Dataset: VOC2007 <br>
 mAP: <br>
 
 ```
-aeroplane ap:  0.6492260838166934
-bicycle ap:  0.8010712280076165
-bird ap:  0.7013865117634108
-boat ap:  0.5557173155813903
-bottle ap:  0.4353563564340365
-bus ap:  0.753804699972881
-car ap:  0.7878183961387922
-cat ap:  0.8632726491920759
-chair ap:  0.4090719340574334
-cow ap:  0.6657089830054761
-diningtable ap:  0.6513494390619038
-dog ap:  0.8466486584164448
-horse ap:  0.8328765157511936
-motorbike ap:  0.7607912651726462
-person ap:  0.7089970516297166
-pottedplant ap:  0.32875322571854027
-sheep ap:  0.6372370950276296
-sofa ap:  0.675301446703759
-train ap:  0.7734685594308568
-tvmonitor ap:  0.6505409659737674
-mAP:  0.6744199190428132
+aeroplane ap:  0.7770436248733187
+bicycle ap:  0.822183784348553
+bird ap:  0.7346967323068865
+boat ap:  0.6142903989882571
+bottle ap:  0.4518063126765959
+bus ap:  0.782237197681936
+car ap:  0.8138978890046222
+cat ap:  0.8800232369515162
+chair ap:  0.4531520519719176
+cow ap: 0.6992367978932157
+diningtable ap:  0.6765065569475968
+dog ap:  0.8612118810883834
+horse ap:  0.8559580684256001
+motorbike ap:  0.8027311717682002
+person ap:  0.7280218883512792
+pottedplant ap:  0.35520418960051925
+sheep ap:  0.6833401035128458
+sofa ap:  0.6753841073186044
+train ap:  0.8107647793504738
+tvmonitor ap:  0.6726791558585905
+mAP:  0.7075184964459456
 ```
 GPU inference time (GTX1080Ti): 23ms <br>
 CPU inference time (i7-8550U): 168ms <br>
@@ -172,27 +184,27 @@ Test Dataset: VOC2007 <br>
 mAP: <br>
 
 ```
-aeroplane ap:  0.8186380791530123
-bicycle ap:  0.778370501901752
-bird ap:  0.8040658409051149
-boat ap:  0.6606796907615438
-bottle ap:  0.5338128542328597
-bus ap:  0.8516086793836817
-car ap:  0.8247881435224634
-cat ap:  0.9271784386863242
-chair ap:  0.5344565229671414
-cow ap:  0.7724057669182698
-diningtable ap:  0.701598520527006
-dog ap:  0.9052246177009002
-horse ap:  0.8477206181813397
-motorbike ap:  0.8275932123398402
-person ap:  0.7605203479510053
-pottedplant ap:  0.45979410517062475
-sheep ap:  0.8301611044152797
-sofa ap:  0.7393617389123919
-train ap:  0.8817430073959469
-tvmonitor ap:  0.6981047903116634
-mAP:  0.757891329066908
+aeroplane ap:  0.8572154850266848
+bicycle ap:  0.8129962658687486
+bird ap:  0.8325678324285539
+boat ap:  0.7061501348114156
+bottle ap:  0.5603823420846883
+bus ap:  0.8536452418769342
+car ap:  0.8395446870008888
+cat ap:  0.9200504816535645
+chair ap:  0.514644868267842
+cow ap:  0.8202171886452714
+diningtable ap:  0.7370149790284737
+dog ap:  0.900374518831019
+horse ap:  0.8632567146990895
+motorbike ap:  0.8147344820261591
+person ap:  0.7690434789031615
+pottedplant ap:  0.4576271726152926
+sheep ap:  0.8006580581981677
+sofa ap:  0.7478146395952494
+train ap:  0.8783508559769437
+tvmonitor ap:  0.6923886096918628
+mAP:  0.7689339018615006
 ```
 GPU inference time (GTX1080Ti): 23ms <br>
 CPU inference time (i7-8550U): 168ms <br>
