@@ -2,7 +2,6 @@ import tensorflow as tf
 from functools import reduce
 from yolo3.utils import get_random_data, preprocess_true_boxes
 from yolo3.enum import DATASET_MODE
-import tensorflow_datasets as tfds
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -132,12 +131,6 @@ class Dataset:
     def build(self, split=None):
         if self.glob_path is None:
             return None,0
-        if self.glob_path in tfds.list_builders():
-            return tfds.load(name=self.glob_path,
-                             split=split,
-                             with_info=True,
-                             as_supervised=True,
-                             try_gcs=tfds.is_dataset_on_gcs(self.glob_path))
         files = tf.io.gfile.glob(self.glob_path)
         if len(files) == 0:
             raise ValueError('No file found')
