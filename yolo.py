@@ -7,7 +7,6 @@ import colorsys
 from timeit import default_timer as timer
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw
-import cv2
 import tensorflow as tf
 from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body, efficientnet_yolo_body, YoloEval
 from yolo3.utils import letterbox_image, get_anchors, get_classes
@@ -15,7 +14,6 @@ from yolo3.enum import OPT, BACKBONE
 from yolo3.map import MAPCallback
 import os
 from typing import List, Tuple
-from tensorflow_serving.apis import prediction_log_pb2, predict_pb2
 from tensorflow.python import debug as tf_debug
 from functools import partial
 
@@ -222,6 +220,7 @@ def export_tfjs_model(yolo, path):
 
 
 def export_serving_model(yolo, path):
+    from tensorflow_serving.apis import prediction_log_pb2, predict_pb2
     if tf.io.gfile.exists(path):
         overwrite = input("Overwrite existed model(yes/no):")
         if overwrite == 'yes':
@@ -311,6 +310,7 @@ def detect_img(yolo):
 
 
 def detect_video(yolo: YOLO, video_path: str, output_path: str = ""):
+    import cv2
     vid = cv2.VideoCapture(video_path)
     if not vid.isOpened():
         raise IOError("Couldn't open webcam or video")
