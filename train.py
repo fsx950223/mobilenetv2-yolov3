@@ -139,7 +139,7 @@ def train(FLAGS):
                                                              epsilon=1e-8),
                           loss=loss)
         model.fit(epochs, [checkpoint, tensorboard, tf.keras.callbacks.LearningRateScheduler(
-        lambda epoch, _:epoch,1)], train_dataset,train_num//batch_size,
+        (lambda _, lr:lr),1)], train_dataset,train_num//batch_size,
             val_dataset,val_num//batch_size)
         model.save_weights(
             os.path.join(
