@@ -94,11 +94,11 @@ def train(FLAGS):
     if tf.version.VERSION.startswith('1.'):
         loss = [
             lambda y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 0, anchors, print_loss=True), lambda
+                y_true, yolo_output, 0, anchors, print_loss=False), lambda
             y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 1, anchors, print_loss=True), lambda
+                y_true, yolo_output, 1, anchors, print_loss=False), lambda
             y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 2, anchors, print_loss=True)
+                y_true, yolo_output, 2, anchors, print_loss=False)
         ]
     else:
         loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(len(anchors) // 3)]
@@ -138,7 +138,8 @@ def train(FLAGS):
             model.compile(optimizer=tf.keras.optimizers.Adam(lr[0],
                                                              epsilon=1e-8),
                           loss=loss)
-        model.fit(epochs, [checkpoint, tensorboard], train_dataset,train_num//batch_size,
+        model.fit(epochs, [checkpoint, tensorboard, tf.keras.callbacks.LearningRateScheduler(
+        lambda epoch, _:epoch,1)], train_dataset,train_num//batch_size,
             val_dataset,val_num//batch_size)
         model.save_weights(
             os.path.join(
