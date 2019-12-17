@@ -279,7 +279,7 @@ def calculate_map(yolo, glob):
     mAP = np.mean([APs[cls] for cls in APs])
     print('mAP: ', mAP)
 
-def inference_img(image_path):
+def inference_img(yolo,image_path):
     try:
         if tf.executing_eagerly():
             content = tf.io.read_file(image_path)
@@ -303,9 +303,9 @@ def detect_img(yolo):
             with open(input) as file:
                 for image_path in file.readlines():
                     image_path = image_path.strip()
-                    inference_img(image_path)
+                    inference_img(yolo,image_path)
         else:
-            inference_img(inputs)
+            inference_img(yolo,inputs)
     yolo.close_session()
 
 
