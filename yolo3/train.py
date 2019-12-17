@@ -95,9 +95,12 @@ class AdvLossModel(tf.keras.Model):
         self.adv_config = adv_config
         self._configure_callbacks(callbacks)
         logs = {}
+        self.stop_training=False
         for callback in callbacks:
             callback.on_train_begin(logs)
         for epoch in range(epochs):
+            if self.stop_training:
+                break
             for callback in callbacks:
                 callback.on_epoch_begin(epoch, logs)
             train_loss = self._distributed_epoch(
