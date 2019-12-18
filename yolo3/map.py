@@ -1,13 +1,12 @@
 import tensorflow as tf
 import numpy as np
-from yolo3.model import yolo_eval
+from yolo3.model import yolo_eval,YoloEval
 from yolo3.utils import letterbox_image, bind
 from timeit import default_timer as timer
 from yolo3.data import Dataset
 from yolo3.enum import DATASET_MODE
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-
 
 class MAPCallback(tf.keras.callbacks.Callback):
     """
@@ -57,7 +56,7 @@ class MAPCallback(tf.keras.callbacks.Callback):
         label = tf.expand_dims(features['image/object/bbox/label'].values, 0)
         bbox = tf.concat([xmin, ymin, xmax, ymax,
                           tf.cast(label, tf.float32)], 0)
-        return image, bbox
+        return image, tf.transpose(bbox)
 
     def parse_text(self, line):
         values = tf.strings.split([line], ' ').values
@@ -74,7 +73,8 @@ class MAPCallback(tf.keras.callbacks.Callback):
         bbox = tf.concat(
             [xmins, ymins, xmaxs, ymaxs,
              tf.cast(labels, tf.float32)], 0)
-        return image, bbox
+        return image, tf.transpose(bbox)
+
 
     def calculate_aps(self):
         test_dataset_builder = Dataset(self.glob_path,
@@ -90,30 +90,26 @@ class MAPCallback(tf.keras.callbacks.Callback):
         APs = {}
         start = timer()
         for image, bbox in test_dataset:
-            if self.input_shape != (None, None):
-                boxed_image, resized_image_shape = letterbox_image(
-                    image, tuple(self.input_shape))
-            else:
-                _, height, width, _ = tf.shape(image)
-                new_image_size = (height - (height % 32), width - (width % 32))
-                boxed_image, resized_image_shape = letterbox_image(
-                    image, new_image_size)
-            output = self.model.predict(boxed_image.numpy())
-            out_boxes, out_scores, out_classes = yolo_eval(
-                output,
-                self.anchors,
-                self.num_classes,
-                image.shape[1:3],
-                score_threshold=self.score,
-                iou_threshold=self.nms)
+            boxed_image = letterbox_image(
+            image, tuple(self.input_shape))
+        
+            output = self.model(boxed_image)
+            out_boxes, out_scores, out_classes=self.yolo_eval(
+                    output,
+                    tf.shape(image)[1:3])
+            out_boxes=out_boxes.numpy()
+            out_classes=out_classes.numpy()
+            out_scores=out_scores.numpy()
+            
             if len(out_classes) > 0:
-                for i in range(len(out_classes)):
-                    top, left, bottom, right = out_boxes[i]
+                for out_box, out_score, out_class in zip(
+                        out_boxes, out_scores, out_classes):
+                    top, left, bottom, right = out_box
                     pred_res.append([
-                        idx, out_classes[i].numpy(), out_scores[i].numpy(),
+                        idx, out_class, out_score,
                         left, top, right, bottom
                     ])
-            true_res[idx] = tf.transpose(bbox[0]).numpy()
+            true_res[idx] = bbox[0].numpy()
             idx += 1
         end = timer()
         print((end - start) / test_num)
@@ -190,7 +186,8 @@ class MAPCallback(tf.keras.callbacks.Callback):
                  score=0.,
                  iou=.5,
                  nms=.5,
-                 batch_size=1):
+                 batch_size=1,
+                 model=None):
         if isinstance(input_shapes, list):
             self.input_shape = input_shapes[0]
         else:
@@ -203,6 +200,11 @@ class MAPCallback(tf.keras.callbacks.Callback):
         self.iou = iou
         self.nms = nms
         self.batch_size = batch_size
+        self.yolo_eval=YoloEval(
+                self.anchors,
+                self.num_classes,
+                score_threshold=self.score,
+                iou_threshold=self.nms)
 
     def on_train_end(self, logs={}):
         logs = logs or {}
