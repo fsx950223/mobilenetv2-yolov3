@@ -34,7 +34,7 @@ def letterbox_image(image, size):
     new_image = tf.image.pad_to_bounding_box(resized_image, dy, dx, h, w)
     image_color_padded = tf.cast(tf.equal(new_image, 0),
                                  tf.float32) * (128 / 255)
-    return image_color_padded + new_image, tf.shape(resized_image)
+    return image_color_padded + new_image
 
 
 def random_gamma(image, min, max):
@@ -124,6 +124,8 @@ def get_random_data(image,
                                 [tf.cast(nh, tf.int32),
                                  tf.cast(nw, tf.int32)])
 
+
+        
         def crop_and_pad(image, dx, dy):
             dy_t = tf.cast(tf.math.maximum(-dy, 0), tf.int32)
             dx_t = tf.cast(tf.math.maximum(-dx, 0), tf.int32)
@@ -131,21 +133,18 @@ def get_random_data(image,
                 image, dy_t, dx_t,
                 tf.math.minimum(tf.cast(h, tf.int32), tf.cast(nh, tf.int32)),
                 tf.math.minimum(tf.cast(w, tf.int32), tf.cast(nw, tf.int32)))
-            image = tf.image.pad_to_bounding_box(image, 
-                                                 tf.cast(tf.math.maximum(dy,0), tf.int32), tf.cast(tf.math.maximum(dx,0), tf.int32),
-                                                 tf.cast(h, tf.int32),
-                                                 tf.cast(w, tf.int32))
+            image = tf.image.pad_to_bounding_box(
+                image, tf.cast(tf.math.maximum(dy, 0), tf.int32),
+                tf.cast(tf.math.maximum(dx, 0), tf.int32), tf.cast(
+                    h, tf.int32), tf.cast(w, tf.int32))
             return image
 
-        new_image = tf.cond(
-            tf.logical_or(nw>w, nh>h),
-            lambda: crop_and_pad(image, dx, dy), lambda: tf.image
-            .pad_to_bounding_box(image, tf.cast(tf.math.maximum(
-                dy, 0), tf.int32), tf.cast(tf.math.maximum(dx, 0), tf.int32),
-                                 tf.cast(h, tf.int32), tf.cast(w, tf.int32)))
-        image_color_padded = tf.cast(tf.equal(new_image, 0),
-                                     tf.float32) * (128 / 255)
-        image = image_color_padded + new_image
+        image = tf.cond(
+            tf.logical_or(nw > w, nh > h), lambda: crop_and_pad(image, dx, dy),
+            lambda: tf.image.pad_to_bounding_box(
+                image, tf.cast(tf.math.maximum(dy, 0), tf.int32),
+                tf.cast(tf.math.maximum(dx, 0), tf.int32), tf.cast(
+                    h, tf.int32), tf.cast(w, tf.int32)))
 
         xmins = xmins * nw / iw + dx
         xmaxs = xmaxs * nw / iw + dx

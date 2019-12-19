@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from yolo3.model import yolo_eval,YoloEval
+from yolo3.model import YoloEval
 from yolo3.utils import letterbox_image, bind
 from timeit import default_timer as timer
 from yolo3.data import Dataset
