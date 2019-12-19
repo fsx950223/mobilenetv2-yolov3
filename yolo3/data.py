@@ -85,21 +85,21 @@ class Dataset:
                 map(lambda file: int(self._get_num_from_name(file)), files))
             dataset = dataset.interleave(
                 lambda file: dataset_builder(file),
-                cycle_length=len(files),
+                cycle_length=AUTOTUNE,
                 num_parallel_calls=AUTOTUNE).shuffle(train_num).map(
                     parser, num_parallel_calls=AUTOTUNE).prefetch(
                         self.batch_size).batch(self.batch_size)
         elif self.mode == DATASET_MODE.VALIDATE:
             dataset = dataset.interleave(
                 lambda file: dataset_builder(file),
-                cycle_length=len(files),
+                cycle_length=AUTOTUNE,
                 num_parallel_calls=AUTOTUNE).map(
                     parser, num_parallel_calls=AUTOTUNE).prefetch(
                         self.batch_size).batch(self.batch_size)
         elif self.mode == DATASET_MODE.TEST:
             dataset = dataset.interleave(
                 lambda file: dataset_builder(file),
-                cycle_length=len(files),
+                cycle_length=AUTOTUNE,
                 num_parallel_calls=AUTOTUNE).map(
                     parser, num_parallel_calls=AUTOTUNE).prefetch(
                         self.batch_size).batch(self.batch_size)
