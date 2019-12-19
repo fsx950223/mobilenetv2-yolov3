@@ -112,6 +112,15 @@ def main(_):
                 ]
             flags_dict.update(config)
 
+    opt = flags_dict.get('opt', None)
+    if opt == OPT.XLA:
+        tf.config.optimizer.set_jit(True)
+    elif opt == OPT.DEBUG:
+        tf.compat.v2.random.set_seed(111111);
+        tf.debugging.set_log_device_placement(True)
+        tf.config.experimental_run_functions_eagerly(True)
+        logging.set_verbosity(logging.DEBUG)
+
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
         gpu_indexs=[int(gpu.name.split(':')[-1]) for gpu in gpus]
@@ -155,5 +164,5 @@ def main(_):
 
 
 if __name__ == '__main__':
-    logging.set_verbosity(tf.logging.INFO)
+    logging.set_verbosity(logging.INFO)
     app.run(main)

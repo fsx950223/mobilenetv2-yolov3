@@ -5,7 +5,7 @@ import tensorflow as tf
 import datetime
 from yolo3.model import darknet_yolo_body, YoloLoss, mobilenetv2_yolo_body, efficientnet_yolo_body
 from yolo3.data import Dataset
-from yolo3.enum import OPT, BACKBONE, DATASET_MODE
+from yolo3.enum import BACKBONE, DATASET_MODE
 from yolo3.map import MAPCallback
 from yolo3.utils import get_anchors, get_classes, ModelFactory
 import os
@@ -33,15 +33,6 @@ def train(FLAGS):
     test_dataset_glob = FLAGS['test_dataset']
     freeze = FLAGS['freeze']
     epochs = FLAGS['epochs'][0] if freeze else FLAGS['epochs'][1]
-    if opt == OPT.DEBUG:
-        tf.config.experimental_run_functions_eagerly(True)
-        tf.debugging.set_log_device_placement(True)
-        tf.get_logger().setLevel(tf.logging.DEBUG)
-    elif opt == OPT.XLA:
-        config = tf.ConfigProto()
-        config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
-        sess = tf.Session(config=config)
-        tf.keras.backend.set_session(sess)
 
     class_names = get_classes(FLAGS['classes_path'])
     num_classes = len(class_names)

@@ -10,7 +10,7 @@ from PIL import Image, ImageFont, ImageDraw
 import tensorflow as tf
 from yolo3.model import yolo_eval, darknet_yolo_body, mobilenetv2_yolo_body, efficientnet_yolo_body, YoloEval
 from yolo3.utils import letterbox_image, get_anchors, get_classes
-from yolo3.enum import OPT, BACKBONE
+from yolo3.enum import BACKBONE
 from yolo3.map import MAPCallback
 import os
 from typing import List, Tuple
@@ -41,25 +41,12 @@ class YOLO(object):
         self.anchors = get_anchors(FLAGS['anchors_path'])
         self.input_shape = FLAGS['input_size']
         config = tf.ConfigProto()
-
-        if self.opt == OPT.XLA:
-            config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
-            sess = tf.Session(config=config)
-            tf.keras.backend.set_session(sess)
-        elif self.opt == OPT.MKL:
-            config.intra_op_parallelism_threads = 4
-            config.inter_op_parallelism_threads = 4
-            sess = tf.Session(config=config)
-            tf.keras.backend.set_session(sess)
-        elif self.opt == OPT.DEBUG:
-            tf.logging.set_verbosity(tf.logging.DEBUG)
-            sess = tf_debug.TensorBoardDebugWrapperSession(
-                tf.Session(config=tf.ConfigProto(log_device_placement=True)),
-                "localhost:6064")
-            tf.keras.backend.set_session(sess)
-        else:
-            sess = tf.keras.backend.get_session()
-        self.sess = sess
+        self.sess = tf.keras.backend.get_session()
+        self.yolo_eval=YoloEval(self.anchors,
+                        len(self.class_names),
+                        score_threshold=self.score,
+                        iou_threshold=self.nms,
+                        name='yolo')
         self.generate(FLAGS)
 
     def generate(self, FLAGS):
@@ -95,14 +82,13 @@ class YOLO(object):
                                    num_anchors=num_anchors // 3,
                                    num_classes=num_classes)
             else:
-                input = tf.keras.layers.Input(shape=(None, None, 3),
+                input = tf.keras.layers.Input(shape=(*self.input_shape, 3),
                                               name='predict_image',
                                               dtype=tf.uint8)
                 input_image = tf.map_fn(
                     lambda image: tf.image.convert_image_dtype(
                         image, tf.float32), input, tf.float32)
-                input_image = tf.image.per_image_standardization(input_image)
-                image, shape = letterbox_image(input_image, self.input_shape)
+                image = letterbox_image(input_image, self.input_shape)
                 self.input_image_shape = tf.shape(input_image)[1:3]
                 image = tf.reshape(image, [-1, *self.input_shape, 3])
                 model = model_body(image,
@@ -120,12 +106,7 @@ class YOLO(object):
         if tf.executing_eagerly():
             self.yolo_model = model
         else:
-            output = YoloEval(self.anchors,
-                              len(self.class_names),
-                              self.input_image_shape,
-                              score_threshold=self.score,
-                              iou_threshold=self.nms,
-                              name='yolo')(model.output)
+            output = self.yolo_eval(model.output,self.input_image_shape)
             self.yolo_model = tf.keras.Model(model.input, output)
         # Generate output tensor targets for filtered bounding boxes.
         hsv_tuples: List[Tuple[float, float, float]] = [
@@ -146,12 +127,12 @@ class YOLO(object):
         if tf.executing_eagerly():
             image_data = tf.expand_dims(image, 0)
             if self.input_shape != (None, None):
-                boxed_image, image_shape = letterbox_image(
+                boxed_image = letterbox_image(
                     image_data, tuple(self.input_shape))
             else:
                 height, width, _ = image_data.shape
                 new_image_size = (height - (height % 32), width - (width % 32))
-                boxed_image, image_shape = letterbox_image(
+                boxed_image = letterbox_image(
                     image_data, new_image_size)
             image_data = np.array(boxed_image)
             start = timer()
@@ -286,7 +267,6 @@ def inference_img(yolo,image_path):
             image = tf.image.decode_image(content,
                                             channels=3,
                                             dtype=tf.float32)
-            image = tf.image.per_image_standardization(image)
         else:
             image = Image.open(image_path)
     except:
