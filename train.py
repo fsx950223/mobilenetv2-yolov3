@@ -16,7 +16,6 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 tf.keras.backend.set_learning_phase(1)
 
-
 def train(FLAGS):
     """Train yolov3 with different backbone
     """
@@ -130,8 +129,7 @@ def train(FLAGS):
                                                              epsilon=1e-8),
                           loss=loss)
         model.fit(epochs, [checkpoint, tensorboard, tf.keras.callbacks.LearningRateScheduler(
-        (lambda _, lr:lr),1)], train_dataset,train_num//batch_size,
-            val_dataset,val_num//batch_size)
+        (lambda _, lr:lr),1)], train_dataset, val_dataset)
         model.save_weights(
             os.path.join(
                 log_dir,
@@ -147,8 +145,8 @@ def train(FLAGS):
                                                              epsilon=1e-8),
                           loss=loss)  # recompile to apply the change
         print('Unfreeze all of the layers.')
-        model.fit(epochs, [checkpoint, cos_lr, tensorboard, early_stopping], train_dataset,train_num//batch_size,
-                      val_dataset,val_num//batch_size,use_adv=False)
+        model.fit(epochs, [checkpoint, cos_lr, tensorboard, early_stopping], train_dataset,
+                      val_dataset,use_adv=False)
         model.save_weights(
             os.path.join(
                 log_dir,

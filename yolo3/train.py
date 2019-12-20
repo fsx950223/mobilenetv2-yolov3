@@ -51,7 +51,7 @@ class AdvLossModel(tf.keras.Model):
         return loss
 
     @tf.function
-    def _distributed_epoch(self, dataset, step, num):
+    def _distributed_epoch(self, dataset, step):
         total_loss = 0.0
         num_batches = 0.0
         for batch in dataset:
@@ -80,9 +80,7 @@ class AdvLossModel(tf.keras.Model):
             epochs,
             callbacks,
             train_dataset,
-            train_num,
             val_dataset,
-            val_num,
             writer=None,
             use_ema=False,
             use_adv=False,
@@ -104,9 +102,9 @@ class AdvLossModel(tf.keras.Model):
             for callback in callbacks:
                 callback.on_epoch_begin(epoch, logs)
             train_loss = self._distributed_epoch(
-                train_dataset, True, tf.constant(train_num))
+                train_dataset, True)
             val_loss = self._distributed_epoch(
-                val_dataset, False, tf.constant(val_num))
+                val_dataset, False)
             logs['loss'] = train_loss
             logs['val_loss'] = val_loss
             for callback in callbacks:
@@ -114,32 +112,3 @@ class AdvLossModel(tf.keras.Model):
 
         for callback in callbacks:
             callback.on_train_end(logs)
-
-
-class CosineLearningRateWithLinearWarmup(
-        tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, lr, total_steps, warmup_lr, warmup_steps):
-        super(CosineLearningRateWithLinearWarmup, self).__init__()
-        self.lr = lr
-        self.total_steps = total_steps
-        self.warmup_lr = warmup_lr
-        self.warmup_steps = warmup_steps
-
-    def __call__(self, global_step):
-        global_step = tf.cast(global_step, tf.float32)
-        linear_warmup = self.warmup_lr + global_step / self.warmup_steps * (
-            self.lr - self.warmup_lr)
-        consine_lr = self.lr * (
-            tf.cos(np.pi * (global_step - self.warmup_steps) /
-                   (self.total_steps - self.warmup_steps)) + 1.0) / 2.0
-        lr = tf.where(global_step < self.warmup_steps, linear_warmup,
-                      consine_lr)
-        return lr
-
-    def get_config(self):
-        config = super(CosineLearningRateWithLinearWarmup, self).get_config()
-        config['lr'] = self.lr
-        config['total_steps'] = self.total_steps
-        config['warmup_lr'] = self.warmup_lr
-        config['warmup_steps'] = self.warmup_steps
-        return config

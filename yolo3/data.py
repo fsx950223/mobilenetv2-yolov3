@@ -6,7 +6,7 @@ from yolo3.enum import DATASET_MODE
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
-class Dataset:
+class Dataset(object):
 
     def parse_tfrecord(self, example_proto):
         feature_description = {
