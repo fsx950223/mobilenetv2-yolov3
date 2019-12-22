@@ -4,6 +4,52 @@ from functools import reduce
 import tensorflow as tf
 import numpy as np
 
+def do_giou_calculate(b1, b2, mode='giou'):
+    """
+    Args:
+        b1: bounding box. The coordinates of the each bounding box in boxes are
+        encoded as [y_min, x_min, y_max, x_max].
+        b2: the other bounding box. The coordinates of the each bounding box
+        in boxes are encoded as [y_min, x_min, y_max, x_max].
+        mode: one of ['giou', 'iou'],
+        decided to calculate giou loss or iou loss.
+    Returns:
+        GIoU loss float `Tensor`.
+    """
+    zero = tf.convert_to_tensor(0., b1.dtype)
+    b1_ymin, b1_xmin, b1_ymax, b1_xmax = tf.unstack(b1, 4, axis=-1)
+    b2_ymin, b2_xmin, b2_ymax, b2_xmax = tf.unstack(b2, 4, axis=-1)
+    b1_width = tf.maximum(zero, b1_xmax - b1_xmin)
+    b1_height = tf.maximum(zero, b1_ymax - b1_ymin)
+    b2_width = tf.maximum(zero, b2_xmax - b2_xmin)
+    b2_height = tf.maximum(zero, b2_ymax - b2_ymin)
+    b1_area = b1_width * b1_height
+    b2_area = b2_width * b2_height
+
+    intersect_ymin = tf.maximum(b1_ymin, b2_ymin)
+    intersect_xmin = tf.maximum(b1_xmin, b2_xmin)
+    intersect_ymax = tf.minimum(b1_ymax, b2_ymax)
+    intersect_xmax = tf.minimum(b1_xmax, b2_xmax)
+    intersect_width = tf.maximum(zero, intersect_xmax - intersect_xmin)
+    intersect_height = tf.maximum(zero, intersect_ymax - intersect_ymin)
+    intersect_area = intersect_width * intersect_height
+
+    union_area = b1_area + b2_area - intersect_area
+    iou = tf.math.divide_no_nan(intersect_area, union_area)
+    if mode == 'iou':
+        return iou
+
+    enclose_ymin = tf.minimum(b1_ymin, b2_ymin)
+    enclose_xmin = tf.minimum(b1_xmin, b2_xmin)
+    enclose_ymax = tf.maximum(b1_ymax, b2_ymax)
+    enclose_xmax = tf.maximum(b1_xmax, b2_xmax)
+    enclose_width = tf.maximum(zero, enclose_xmax - enclose_xmin)
+    enclose_height = tf.maximum(zero, enclose_ymax - enclose_ymin)
+    enclose_area = enclose_width * enclose_height
+    giou = iou - tf.math.divide_no_nan(
+        (enclose_area - union_area), enclose_area)
+    return giou
+
 
 def compose(*funcs):
     """Compose arbitrarily many functions, evaluated left to right.
@@ -254,13 +300,9 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     box_maxes = wh / 2.
     box_mins = -box_maxes
 
-    intersect_mins = np.maximum(box_mins, anchor_mins)
-    intersect_maxes = np.minimum(box_maxes, anchor_maxes)
-    intersect_wh = np.maximum(intersect_maxes - intersect_mins, 0.)
-    intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
-    box_area = wh[..., 0] * wh[..., 1]
-    anchor_area = anchors[..., 0] * anchors[..., 1]
-    iou = intersect_area / (box_area + anchor_area - intersect_area)
+    anchor_box=tf.stack([anchor_mins[...,1],anchor_mins[...,0],anchor_maxes[...,1],anchor_maxes[...,0]],axis=-1)
+    bbox=tf.stack([box_mins[...,1],box_mins[...,0],box_maxes[...,1],box_maxes[...,0]],axis=-1)
+    iou=do_giou_calculate(anchor_box,bbox,mode='iou').numpy()
 
     # Find best anchor for each true box
     best_anchor = np.argmax(iou, axis=-1)

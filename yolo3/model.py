@@ -4,7 +4,7 @@ from yolo3.enum import BOX_LOSS
 import numpy as np
 import tensorflow as tf
 from typing import List, Tuple
-from yolo3.utils import compose
+from yolo3.utils import compose,do_giou_calculate
 from yolo3.override import mobilenet_v2
 from yolo3.darknet import DarknetConv2D_BN_Leaky, DarknetConv2D, darknet_body
 from yolo3.efficientnet import EfficientNetB4, MBConvBlock, get_model_params, BlockArgs
@@ -420,7 +420,6 @@ def yolo_eval(yolo_outputs: List[tf.Tensor],
     scores_ = []
     classes_ = []
     for c in range(num_classes):
-        # TODO: use keras backend instead of tf.
         nms_index = tf.image.non_max_suppression(
             boxes,
             box_scores[:, c],
@@ -445,7 +444,6 @@ class YoloEval(tf.keras.layers.Layer):
     def __init__(self,
                  anchors,
                  num_classes,
-                 image_shape,
                  max_boxes=20,
                  score_threshold=.6,
                  iou_threshold=.5,
@@ -453,97 +451,25 @@ class YoloEval(tf.keras.layers.Layer):
         super(YoloEval, self).__init__(**kwargs)
         self.anchors = anchors
         self.num_classes = num_classes
-        self.image_shape = image_shape
         self.max_boxes = max_boxes
         self.score_threshold = score_threshold
         self.iou_threshold = iou_threshold
 
-    def call(self, yolo_outputs):
+    def call(self, yolo_outputs,image_shape):
         return yolo_eval(yolo_outputs, self.anchors, self.num_classes,
-                         self.image_shape, self.max_boxes, self.score_threshold,
+                         image_shape, self.max_boxes, self.score_threshold,
                          self.iou_threshold)
 
     def get_config(self):
         config = super(YoloEval, self).get_config()
         config['anchors'] = self.anchors
         config['num_classes'] = self.num_classes
-        config['image_shape'] = self.image_shape
         config['max_boxes'] = self.max_boxes
         config['score_threshold'] = self.score_threshold
         config['iou_threshold'] = self.iou_threshold
 
         return config
 
-
-def box_iou(b1, b2):
-    '''Return iou tensor
-
-    Parameters
-    ----------
-    b1: tensor, shape=(i1,...,iN, 4), xywh
-    b2: tensor, shape=(j, 4), xywh
-
-    Returns
-    -------
-    iou: tensor, shape=(i1,...,iN, j)
-
-    '''
-
-    # Expand dim to apply broadcasting.
-    b1_xy = b1[..., :2]
-    b1_wh = b1[..., 2:4]
-    b1_wh_half = b1_wh / 2.
-    b1_mins = b1_xy - b1_wh_half
-    b1_maxes = b1_xy + b1_wh_half
-
-    # Expand dim to apply broadcasting.
-    b2_xy = b2[..., :2]
-    b2_wh = b2[..., 2:4]
-    b2_wh_half = b2_wh / 2.
-    b2_mins = b2_xy - b2_wh_half
-    b2_maxes = b2_xy + b2_wh_half
-
-    intersect_mins = tf.maximum(b1_mins, b2_mins)
-    intersect_maxes = tf.minimum(b1_maxes, b2_maxes)
-    intersect_wh = tf.maximum(intersect_maxes - intersect_mins, 0.)
-    intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
-    b1_area = b1_wh[..., 0] * b1_wh[..., 1]
-    b2_area = b2_wh[..., 0] * b2_wh[..., 1]
-    iou = intersect_area / (b1_area + b2_area - intersect_area)
-
-    return iou
-
-
-def box_giou(b1, b2):
-    # Expand dim to apply broadcasting.
-    b1_xy = b1[..., :2]
-    b1_wh = b1[..., 2:4]
-    b1_wh_half = b1_wh / 2.
-    b1_mins = b1_xy - b1_wh_half
-    b1_maxes = b1_xy + b1_wh_half
-
-    # Expand dim to apply broadcasting.
-    b2_xy = b2[..., :2]
-    b2_wh = b2[..., 2:4]
-    b2_wh_half = b2_wh / 2.
-    b2_mins = b2_xy - b2_wh_half
-    b2_maxes = b2_xy + b2_wh_half
-
-    intersect_mins = tf.maximum(b1_mins, b2_mins)
-    intersect_maxes = tf.minimum(b1_maxes, b2_maxes)
-    intersect_wh = tf.maximum(intersect_maxes - intersect_mins, 0.)
-    intersect_area = intersect_wh[..., 0] * intersect_wh[..., 1]
-    b1_area = b1_wh[..., 0] * b1_wh[..., 1]
-    b2_area = b2_wh[..., 0] * b2_wh[..., 1]
-    union_area = b1_area + b2_area - intersect_area
-    iou = intersect_area / union_area
-
-    bc_mins = tf.minimum(b1_mins, b2_mins)
-    bc_maxes = tf.maximum(b1_maxes, b2_maxes)
-    enclose_wh = tf.maximum(bc_maxes - bc_mins, 0.)
-    enclose_area = enclose_wh[..., 0] * enclose_wh[..., 1]
-    giou = iou - (enclose_area - union_area) / enclose_area
-    return giou
 
 if tf.version.VERSION.startswith('1.'):
 
@@ -580,14 +506,25 @@ if tf.version.VERSION.startswith('1.'):
         input_shape = tf.shape(yolo_output)[1:3] * grid_step
         grid, pred_xy, pred_wh, box_confidence = yolo_head(
             yolo_output, anchors[anchor_mask[idx]], input_shape, calc_loss=True)
-        pred_box = tf.concat([pred_xy, pred_wh], -1)
-        # Find ignore mask, iterate over each of batch.
+        pred_max = tf.reverse(pred_xy + pred_wh / 2., [-1])
+        pred_min = tf.reverse(pred_xy - pred_wh / 2., [-1])
+        pred_box = tf.concat([pred_min, pred_max], -1)
+        
+        true_xy = y_true[..., :2]
+        true_wh = y_true[..., 2:4]
+        true_max = tf.reverse(true_xy + true_wh / 2., [-1])
+        true_min = tf.reverse(true_xy - true_wh / 2., [-1])
+        true_box = tf.concat([true_min, true_max], -1)
+        true_box = tf.clip_by_value(true_box, 0, 1)
         object_mask_bool = tf.cast(object_mask, 'bool')
 
-        true_box = tf.boolean_mask(y_true[..., 0:4], object_mask_bool[..., 0])
-        iou = box_iou(tf.expand_dims(pred_box, -2), tf.expand_dims(true_box, 0))
+        masked_true_box = tf.boolean_mask(true_box, object_mask_bool[..., 0])
+        iou = do_giou_calculate(
+            tf.expand_dims(pred_box, -2),
+            tf.expand_dims(masked_true_box, 0),
+            mode='iou')
         best_iou = tf.reduce_max(iou, axis=-1)
-        ignore_mask = tf.cast(best_iou < ignore_thresh, true_box.dtype)
+        ignore_mask = tf.cast(best_iou < ignore_thresh, masked_true_box.dtype)
 
         ignore_mask = tf.expand_dims(ignore_mask, -1)
         confidence_loss = (object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
@@ -601,7 +538,7 @@ if tf.version.VERSION.startswith('1.'):
         class_loss = tf.reduce_sum(class_loss) / mf
 
         if box_loss == BOX_LOSS.GIOU:
-            giou = box_giou(pred_box[..., :4], y_true[..., :4])
+            giou = do_giou_calculate(pred_box, true_box)
             giou_loss = object_mask * (1 - tf.expand_dims(giou, -1))
             giou_loss = tf.reduce_sum(giou_loss) / mf
             loss += giou_loss + confidence_loss + class_loss
