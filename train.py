@@ -16,6 +16,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 tf.keras.backend.set_learning_phase(1)
 
+
 def train(FLAGS):
     """Train yolov3 with different backbone
     """
@@ -81,17 +82,8 @@ def train(FLAGS):
         min_delta=0,
         patience=epochs // 5,
         verbose=1)
-    if tf.version.VERSION.startswith('1.'):
-        loss = [
-            lambda y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 0, anchors, print_loss=False), lambda
-            y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 1, anchors, print_loss=False), lambda
-            y_true, yolo_output: YoloLoss(
-                y_true, yolo_output, 2, anchors, print_loss=False)
-        ]
-    else:
-        loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(len(anchors) // 3)]
+
+    loss = [YoloLoss(idx, anchors, print_loss=False) for idx in range(len(anchors) // 3)]
 
     adv_config = nsl.configs.make_adv_reg_config(
         multiplier=0.2, adv_step_size=0.2, adv_grad_norm='infinity')
