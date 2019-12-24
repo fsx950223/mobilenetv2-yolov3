@@ -1,6 +1,6 @@
 """YOLO_v3 Model Defined in Keras."""
 
-from yolo3.enum import BOX_LOSS
+from yolo3.enums import BOX_LOSS
 import numpy as np
 import tensorflow as tf
 from typing import List, Tuple
@@ -534,6 +534,7 @@ class YoloLoss(tf.keras.losses.Loss):
         ignore_mask = tf.cast(best_iou < self.ignore_thresh, masked_true_box.dtype)
 
         ignore_mask = tf.expand_dims(ignore_mask, -1)
+        # focal_loss = focal(object_mask, box_confidence)
         confidence_loss = (object_mask * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,
                                                                                 logits=yolo_output[..., 4:5]) + \
                         (1 - object_mask) * tf.nn.sigmoid_cross_entropy_with_logits(labels=object_mask,

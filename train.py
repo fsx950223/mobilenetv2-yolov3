@@ -5,7 +5,7 @@ import tensorflow as tf
 import datetime
 from yolo3.model import darknet_yolo_body, YoloLoss, mobilenetv2_yolo_body, efficientnet_yolo_body
 from yolo3.data import Dataset
-from yolo3.enum import BACKBONE, DATASET_MODE
+from yolo3.enums import BACKBONE, DATASET_MODE
 from yolo3.map import MAPCallback
 from yolo3.utils import get_anchors, get_classes, ModelFactory
 import os

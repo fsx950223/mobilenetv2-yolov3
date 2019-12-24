@@ -1,7 +1,7 @@
 import tensorflow as tf
 from functools import reduce
 from yolo3.utils import get_random_data, preprocess_true_boxes
-from yolo3.enum import DATASET_MODE
+from yolo3.enums import DATASET_MODE
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
@@ -110,17 +110,11 @@ class Dataset(object):
                  batch_size: int,
                  anchors=None,
                  num_classes=None,
-                 input_shapes=None,
+                 input_shape=None,
                  mode=DATASET_MODE.TRAIN):
         self.glob_path = glob_path
         self.batch_size = batch_size
-        if isinstance(input_shapes, list):
-            self.input_shapes = input_shapes
-            self.input_shape = tf.Variable(name="input_shape",
-                                           initial_value=self.input_shapes[0],
-                                           trainable=False)
-        else:
-            self.input_shape = input_shapes
+        self.input_shape = input_shape
         self.anchors = anchors
         self.num_classes = num_classes
         self.mode = mode
