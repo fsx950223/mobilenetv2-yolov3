@@ -3,7 +3,7 @@ import tensorflow as tf
 tf.compat.v1.enable_eager_execution()
 tf.compat.v1.enable_v2_behavior()
 tf.compat.v1.enable_v2_tensorshape()
-from yolo3.enum import BACKBONE, MODE, OPT
+from yolo3.enums import BACKBONE, MODE, OPT
 from train import train
 from train_backbone import train as train_backbone
 from yolo import YOLO, detect_video, detect_img, export_tflite_model, export_serving_model, calculate_map, export_tfjs_model
@@ -150,6 +150,7 @@ def main(_):
         if flags_dict['model'] is None:
             raise ValueError('Please enter your model path')
         log('Calculate test dataset map')
+        flags_dict['score']=0.0
         calculate_map(YOLO(flags_dict), FLAGS.test_dataset)
     elif FLAGS.mode == MODE.SERVING:
         tf.disable_eager_execution()
