@@ -18,16 +18,12 @@ Loss:
 - [x] Adversarial loss
 
 Train:
-- [x] Multi scale image size
 - [x] Cosine learning rate
 - [x] Auto augment
-- [x] Image standardization
 
 Tensorflow:
 - [x] Tensorflow2 Ready
-- [x] Use tf.data to load dataset
-- [x] Use tfds to load dataset
-- [x] Remove image shape input when use session
+- [x] tf.data pipeline
 - [ ] Convert model to tensorflow lite model
 - [x] Multi GPU training
 - [ ] TPU support
@@ -38,7 +34,7 @@ Serving:
 - [x] Tensorflow Serving JAVA Client
 - [x] Tensorflow Serving Python Client
 - [x] Tensorflow Serving Service Control Client
-- [ ] Tensorflow Serving Server Build and Plugins develop 
+- [x] Tensorflow Serving Server Build and Plugins develop 
 
 ---
 
