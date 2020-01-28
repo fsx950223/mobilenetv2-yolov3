@@ -6,7 +6,7 @@ matplotlib==3.0.2
 tensorflow_estimator==1.15.1
 tensorflow_serving_api==1.15.0
 six==1.11.0
-tensorflow_gpu==1.15.0
+tensorflow_gpu==1.15.2
 opencv_contrib_python==4.1.0.25
 neural_structured_learning==1.1.0
 grpcio==1.16.1
