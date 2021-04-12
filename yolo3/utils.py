@@ -202,13 +202,13 @@ def get_random_data(image,
                                    - xmins), lambda: (image, xmins, xmaxs))
         if hue > 0:
             image = tf.image.random_hue(image, hue)
-        if sat > 0:
+        if sat > 1:
             image = tf.image.random_saturation(image, 1 - sat, 1 + sat)
         if val > 0:
             image = tf.image.random_brightness(image, val)
         if min_gamma < max_gamma:
             image = random_gamma(image, min_gamma, max_gamma)
-        if cont > 0:
+        if cont > 1:
             image = tf.image.random_contrast(image, 1 - cont, 1 + cont)
         if min_jpeg_quality < max_jpeg_quality:
             image = tf.image.random_jpeg_quality(image, min_jpeg_quality,
