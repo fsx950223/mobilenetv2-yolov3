@@ -1,5 +1,5 @@
 absl_py==0.8.1
-numpy==1.17.3
+numpy==1.22.0
 tensorflowjs==1.2.2.1
 tensorflow_hub==0.3.0
 matplotlib==3.0.2
